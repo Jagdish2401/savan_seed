@@ -7,6 +7,6 @@
     "build": "npm --prefix frontend run build",
     "lint": "npm --prefix frontend run lint",
     "seed:hr": "npm --prefix backend run seed:hr",
-    "postinstall": "npm install --prefix frontend"
+    "postinstall": "npm install --prefix frontend && npm install --prefix backend"
   }
 }
