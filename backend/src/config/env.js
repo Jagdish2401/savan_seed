@@ -15,7 +15,7 @@ export const env = {
   port: Number(process.env.PORT || 4000),
   mongoUri: getEnv('MONGO_URI'),
   jwtSecret: getEnv('JWT_SECRET'),
-  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173',
+  corsOrigin: process.env.CORS_ORIGIN || 'http://localhost:5173' || 'https://savan-seeds.onrender.com',
   hrEmail: process.env.HR_EMAIL || '',
   hrPassword: process.env.HR_PASSWORD || '',
 };
