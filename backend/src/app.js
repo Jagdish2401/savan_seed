@@ -21,7 +21,14 @@ app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 
 app.use(
   cors({
-    origin: env.corsOrigin,
+    origin: function (origin, callback) {
+      // allow requests with no origin (like mobile apps, curl, etc.)
+      if (!origin) return callback(null, true);
+      if (env.corsOrigin.includes(origin)) {
+        return callback(null, true);
+      }
+      return callback(new Error('Not allowed by CORS'));
+    },
     credentials: true,
   })
 );
