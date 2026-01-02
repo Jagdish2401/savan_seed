@@ -26,7 +26,7 @@ router.post('/login', async (req, res) => {
       const token = jwt.sign({ sub: user._id.toString(), role: 'hr' }, env.jwtSecret, { expiresIn: '1d' });
       res.cookie('token', token, {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: env.nodeEnv === 'production' ? 'none' : 'lax',
         secure: env.nodeEnv === 'production',
         maxAge: 24 * 60 * 60 * 1000,
       });
@@ -41,7 +41,7 @@ router.post('/login', async (req, res) => {
       const token = jwt.sign({ sub: user._id.toString(), role: 'employee', employee: user.employee?._id?.toString() }, env.jwtSecret, { expiresIn: '1d' });
       res.cookie('token', token, {
         httpOnly: true,
-        sameSite: 'lax',
+        sameSite: env.nodeEnv === 'production' ? 'none' : 'lax',
         secure: env.nodeEnv === 'production',
         maxAge: 24 * 60 * 60 * 1000,
       });
@@ -77,7 +77,11 @@ router.get('/me', requireAuth, async (req, res) => {
 
 
 router.post('/logout', requireAuth, async (req, res) => {
-  res.clearCookie('token', { path: '/' });
+  res.clearCookie('token', {
+    path: '/',
+    sameSite: env.nodeEnv === 'production' ? 'none' : 'lax',
+    secure: env.nodeEnv === 'production',
+  });
   return res.json({ success: true });
 });
 
