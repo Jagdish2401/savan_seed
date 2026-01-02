@@ -54,25 +54,36 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.get('/me', requireAuth, async (req, res) => {
-  if (req.user?.role === 'hr') {
-    return res.json({ success: true, user: { role: 'hr' } });
+router.get('/me', async (req, res) => {
+  const token = req.cookies?.token;
+  if (!token) {
+    return res.json({ success: true, user: null });
   }
 
-  if (req.user?.role === 'employee') {
-    const empUser = await EmployeeUser.findById(req.user.sub).populate('employee');
-    return res.json({
-      success: true,
-      user: {
-        role: 'employee',
-        employeeId: empUser?.employee?._id?.toString() || null,
-        employeeName: empUser?.employee?.name || null,
-        email: empUser?.email || null,
-      },
-    });
-  }
+  try {
+    const payload = jwt.verify(token, env.jwtSecret);
 
-  return res.status(403).json({ success: false, message: 'Forbidden' });
+    if (payload?.role === 'hr') {
+      return res.json({ success: true, user: { role: 'hr' } });
+    }
+
+    if (payload?.role === 'employee') {
+      const empUser = await EmployeeUser.findById(payload.sub).populate('employee');
+      return res.json({
+        success: true,
+        user: {
+          role: 'employee',
+          employeeId: empUser?.employee?._id?.toString() || null,
+          employeeName: empUser?.employee?.name || null,
+          email: empUser?.email || null,
+        },
+      });
+    }
+
+    return res.json({ success: true, user: null });
+  } catch {
+    return res.json({ success: true, user: null });
+  }
 });
 
 

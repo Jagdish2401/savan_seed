@@ -14,8 +14,9 @@ export default function App() {
     setChecking(true);
     try {
       const res = await api.get('/api/auth/me');
-      setAuthed(true);
-      setUser(res.data?.user || null);
+      const u = res.data?.user || null;
+      setUser(u);
+      setAuthed(Boolean(u));
     } catch {
       setAuthed(false);
       setUser(null);
@@ -39,7 +40,7 @@ export default function App() {
             authed ? (
               user?.role === 'employee' ? <Navigate to="/employee" replace /> : <Navigate to="/" replace />
             ) : (
-              <LoginPage onLoggedIn={(role) => { setAuthed(true); setUser({ role }); }} />
+              <LoginPage onLoggedIn={async () => { await checkAuth(); }} />
             )
           }
         />

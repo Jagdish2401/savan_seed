@@ -12,8 +12,9 @@ export default function LoginPage({ onLoggedIn }) {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.post('/api/auth/login', { email, password });
-      onLoggedIn(res?.data?.role || null);
+      await api.post('/api/auth/login', { email, password });
+      await api.get('/api/auth/me');
+      await onLoggedIn();
     } catch (err) {
       setError(err?.response?.data?.message || err?.message || 'Login failed');
     } finally {
