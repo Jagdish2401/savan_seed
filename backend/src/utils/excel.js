@@ -13,6 +13,19 @@ function parsePercentCell(value) {
   return Number.isFinite(n) ? n : null;
 }
 
+function isPercentHeader(h) {
+  // Accept common spellings and frequent typos like "persantage"/"persantge"
+  return h.includes('%') || h.includes('percent') || h.includes('persan');
+}
+
+function parseNumberCell(value) {
+  const v = unwrapCellValue(value);
+  if (v == null || v === '') return null;
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const n = Number.parseFloat(String(v).trim());
+  return Number.isFinite(n) ? n : null;
+}
+
 function unwrapCellValue(v) {
   if (v == null) return null;
   if (v instanceof Date) return v;
@@ -125,6 +138,93 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
     throw new Error('No worksheet found in Excel file');
   }
 
+  // Try wide block format: each employee spans 4 cols: Dispatch, Return, Total sales, Percentage.
+  const tryParseWideBlocks = () => {
+    // Heuristic: find a row with multiple "dispatch" headers (likely row 2). Scan first 5 rows.
+    let headerRowIndex = null;
+    for (let r = 1; r <= Math.min(5, worksheet.rowCount || 0); r += 1) {
+      const row = worksheet.getRow(r);
+      const dispatchCount = row.values.filter((v) => normalizeHeader(v) === 'dispatch').length;
+      if (dispatchCount >= 1) {
+        headerRowIndex = r;
+        break;
+      }
+    }
+    if (!headerRowIndex) return null;
+
+    const headerRow = worksheet.getRow(headerRowIndex);
+    const nameRowIndex = headerRowIndex > 1 ? headerRowIndex - 1 : headerRowIndex;
+    const nameRow = worksheet.getRow(nameRowIndex);
+
+    const blocks = [];
+    const maxCol = headerRow.cellCount || headerRow.actualCellCount || (worksheet.columnCount || 0);
+    for (let col = 1; col <= maxCol; col += 1) {
+      const h = normalizeHeader(headerRow.getCell(col).value);
+      if (h !== 'dispatch') continue;
+      const returnH = normalizeHeader(headerRow.getCell(col + 1).value);
+      const totalH = normalizeHeader(headerRow.getCell(col + 2).value);
+      const percentH = normalizeHeader(headerRow.getCell(col + 3).value);
+      if (returnH !== 'return' || !totalH.includes('total') || !isPercentHeader(percentH)) continue;
+
+      const rawName = nameRow.getCell(col).value;
+      const employeeName = rawName == null ? `Employee_${blocks.length + 1}` : String(rawName).trim();
+      blocks.push({ employeeName, startCol: col, dispatchCol: col, returnCol: col + 1, percentCol: col + 3 });
+    }
+
+    if (blocks.length === 0) return null;
+
+    const agg = new Map();
+    const startDataRow = headerRowIndex + 1;
+    for (let r = startDataRow; r <= worksheet.rowCount; r += 1) {
+      const row = worksheet.getRow(r);
+      for (const block of blocks) {
+        const percentFromCell = parsePercentCell(unwrapCellValue(row.getCell(block.percentCol).value));
+        const dispatch = parseNumberCell(row.getCell(block.dispatchCol).value);
+        const ret = parseNumberCell(row.getCell(block.returnCol).value);
+        const percentFromDispatchReturn =
+          typeof dispatch === 'number' && dispatch > 0 && typeof ret === 'number' ? (ret / dispatch) * 100 : null;
+
+        // Keep both: uploaded percentage cells (may be formula) and computed percent from Dispatch/Return.
+        const key = block.employeeName.toLowerCase();
+        const prev = agg.get(key) || { employeeName: block.employeeName, values: [], computedValues: [] };
+        if (typeof percentFromCell === 'number') prev.values.push(percentFromCell);
+        if (typeof percentFromDispatchReturn === 'number' && Number.isFinite(percentFromDispatchReturn)) {
+          prev.computedValues.push(percentFromDispatchReturn);
+        }
+        agg.set(key, prev);
+      }
+    }
+
+    if (agg.size === 0) return null;
+
+    const employees = new Map();
+    for (const [key, { employeeName, values, computedValues }] of agg.entries()) {
+      const sourceValues = values.length > 0 ? values : computedValues;
+      const avgPercent = sourceValues.reduce((a, b) => a + b, 0) / sourceValues.length;
+      employees.set(key, {
+        employeeName,
+        avgPercent,
+        percentValues: values,
+        computedPercentValues: computedValues,
+      });
+    }
+
+    return {
+      format: 'wide',
+      nameCol: null,
+      percentCol: null,
+      dateCol: null,
+      yearCol: null,
+      detectedYear: null,
+      detectedYearSource: null,
+      employees,
+    };
+  };
+
+  const wide = tryParseWideBlocks();
+  if (wide) return wide;
+
+  // Fallback to narrow format: name + percent columns.
   const headerRow = worksheet.getRow(1);
   const headers = headerRow.values;
 
@@ -134,7 +234,7 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
   for (let col = 1; col < headers.length; col += 1) {
     const h = normalizeHeader(headers[col]);
     if (!nameCol && (h.includes('employee') || h.includes('name'))) nameCol = col;
-    if (!percentCol && (h.includes('%') || h.includes('percent') || h.includes('percentage'))) percentCol = col;
+    if (!percentCol && isPercentHeader(h)) percentCol = col;
   }
 
   // Fallback: first two columns
@@ -143,7 +243,7 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
 
   const { detectedYear, detectedYearSource, dateCol, yearCol } = detectYearFromWorksheet(worksheet, headers);
 
-  const agg = new Map(); // name -> { sum, count }
+  const agg = new Map(); // name -> { values }
 
   worksheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return;
@@ -157,16 +257,16 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
     if (percent == null) return;
 
     const key = employeeName.toLowerCase();
-    const prev = agg.get(key) || { employeeName, sum: 0, count: 0 };
-    prev.sum += percent;
-    prev.count += 1;
+    const prev = agg.get(key) || { employeeName, values: [] };
+    prev.values.push(percent);
     // Keep the original-cased name from first seen row
     agg.set(key, prev);
   });
 
-  const result = new Map(); // normalizedName -> { employeeName, avgPercent }
-  for (const [key, { employeeName, sum, count }] of agg.entries()) {
-    result.set(key, { employeeName, avgPercent: sum / count });
+  const result = new Map(); // normalizedName -> { employeeName, avgPercent, percentValues }
+  for (const [key, { employeeName, values }] of agg.entries()) {
+    const avgPercent = values.reduce((a, b) => a + b, 0) / values.length;
+    result.set(key, { employeeName, avgPercent, percentValues: values });
   }
 
   return {

@@ -306,7 +306,7 @@ router.post('/:year/seasons/:season/metrics/:metric/upload', upload.single('file
     let updated = 0;
     const unknown = [];
 
-    for (const { employeeName, avgPercent } of parsed.employees.values()) {
+    for (const { employeeName, avgPercent, percentValues, computedPercentValues } of parsed.employees.values()) {
       const employee = await getOrCreateEmployeeByName(employeeName);
       if (!employee) {
         unknown.push(employeeName);
@@ -314,7 +314,34 @@ router.post('/:year/seasons/:season/metrics/:metric/upload', upload.single('file
       }
 
       const record = await getOrCreateRecord(year, employee._id);
-      setMetricOnSeason(record, season, metric, avgPercent);
+      
+      // For salesReturn: compute % per row (prefer Dispatch/Return-derived %), convert each % to increment, then average.
+      if (metric === 'salesReturn') {
+        const pctRows = Array.isArray(computedPercentValues) && computedPercentValues.length > 0
+          ? computedPercentValues
+          : (Array.isArray(percentValues) ? percentValues : []);
+        if (pctRows.length === 0) {
+          // Nothing usable in the sheet for this employee
+          continue;
+        }
+
+        const increments = pctRows
+          .map((pct) => salesReturnPercentToIncrement18(pct))
+          .filter((v) => typeof v === 'number' && Number.isFinite(v));
+
+        if (increments.length === 0) continue;
+
+        const avgIncrement = roundTo(increments.reduce((a, b) => a + b, 0) / increments.length, 2);
+        
+        // Store the average percentage and average increment directly
+        const avgPct = roundTo(pctRows.reduce((a, b) => a + b, 0) / pctRows.length, 2);
+        record.seasons[season][metric] = { pct: avgPct, inc: avgIncrement };
+        const seasonInc = computeSeasonIncrement(record.seasons[season]);
+        record.seasons[season].seasonInc = seasonInc == null ? null : roundTo(seasonInc, 2);
+      } else {
+        // For other metrics: use normal flow (avg percentage → convert to increment)
+        setMetricOnSeason(record, season, metric, avgPercent);
+      }
 
       const prevTotal = await getPrevYearTotalSalary(employee._id, year);
       recomputeYearAndSalary(record, prevTotal);
