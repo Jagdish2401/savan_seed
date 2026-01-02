@@ -306,7 +306,7 @@ router.post('/:year/seasons/:season/metrics/:metric/upload', upload.single('file
     let updated = 0;
     const unknown = [];
 
-    for (const { employeeName, avgPercent, percentValues, computedPercentValues } of parsed.employees.values()) {
+    for (const { employeeName, avgPercent, percentValues, computedPercentValues, effectivePercentValues } of parsed.employees.values()) {
       const employee = await getOrCreateEmployeeByName(employeeName);
       if (!employee) {
         unknown.push(employeeName);
@@ -317,9 +317,11 @@ router.post('/:year/seasons/:season/metrics/:metric/upload', upload.single('file
       
       // For salesReturn: compute % per row (prefer Dispatch/Return-derived %), convert each % to increment, then average.
       if (metric === 'salesReturn') {
-        const pctRows = Array.isArray(computedPercentValues) && computedPercentValues.length > 0
-          ? computedPercentValues
-          : (Array.isArray(percentValues) ? percentValues : []);
+        const pctRows = Array.isArray(effectivePercentValues) && effectivePercentValues.length > 0
+          ? effectivePercentValues
+          : (Array.isArray(computedPercentValues) && computedPercentValues.length > 0
+            ? computedPercentValues
+            : (Array.isArray(percentValues) ? percentValues : []));
         if (pctRows.length === 0) {
           // Nothing usable in the sheet for this employee
           continue;

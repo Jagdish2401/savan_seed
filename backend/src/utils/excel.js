@@ -138,19 +138,21 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
     throw new Error('No worksheet found in Excel file');
   }
 
-  // Try wide block format: each employee spans 4 cols: Dispatch, Return, Total sales, Percentage.
+  // Try wide block format: each employee spans a 4-column block and the last column is Percentage.
   const tryParseWideBlocks = () => {
-    // Heuristic: find a row with multiple "dispatch" headers (likely row 2). Scan first 5 rows.
+    // Heuristic: find the header row that contains the most "percentage" headers.
+    // This lets us support different column names for the first 3 columns.
     let headerRowIndex = null;
-    for (let r = 1; r <= Math.min(5, worksheet.rowCount || 0); r += 1) {
+    let bestPercentCount = 0;
+    for (let r = 1; r <= Math.min(10, worksheet.rowCount || 0); r += 1) {
       const row = worksheet.getRow(r);
-      const dispatchCount = row.values.filter((v) => normalizeHeader(v) === 'dispatch').length;
-      if (dispatchCount >= 1) {
+      const percentCount = row.values.filter((v) => isPercentHeader(normalizeHeader(v))).length;
+      if (percentCount > bestPercentCount) {
+        bestPercentCount = percentCount;
         headerRowIndex = r;
-        break;
       }
     }
-    if (!headerRowIndex) return null;
+    if (!headerRowIndex || bestPercentCount === 0) return null;
 
     const headerRow = worksheet.getRow(headerRowIndex);
     const nameRowIndex = headerRowIndex > 1 ? headerRowIndex - 1 : headerRowIndex;
@@ -158,17 +160,22 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
 
     const blocks = [];
     const maxCol = headerRow.cellCount || headerRow.actualCellCount || (worksheet.columnCount || 0);
-    for (let col = 1; col <= maxCol; col += 1) {
-      const h = normalizeHeader(headerRow.getCell(col).value);
-      if (h !== 'dispatch') continue;
-      const returnH = normalizeHeader(headerRow.getCell(col + 1).value);
-      const totalH = normalizeHeader(headerRow.getCell(col + 2).value);
-      const percentH = normalizeHeader(headerRow.getCell(col + 3).value);
-      if (returnH !== 'return' || !totalH.includes('total') || !isPercentHeader(percentH)) continue;
+    for (let percentCol = 1; percentCol <= maxCol; percentCol += 1) {
+      const percentH = normalizeHeader(headerRow.getCell(percentCol).value);
+      if (!isPercentHeader(percentH)) continue;
 
-      const rawName = nameRow.getCell(col).value;
+      const startCol = percentCol - 3;
+      if (startCol < 1) continue;
+
+      const rawName = nameRow.getCell(startCol).value;
       const employeeName = rawName == null ? `Employee_${blocks.length + 1}` : String(rawName).trim();
-      blocks.push({ employeeName, startCol: col, dispatchCol: col, returnCol: col + 1, percentCol: col + 3 });
+      blocks.push({
+        employeeName,
+        startCol,
+        dispatchCol: startCol,
+        returnCol: startCol + 1,
+        percentCol,
+      });
     }
 
     if (blocks.length === 0) return null;
@@ -184,12 +191,24 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
         const percentFromDispatchReturn =
           typeof dispatch === 'number' && dispatch > 0 && typeof ret === 'number' ? (ret / dispatch) * 100 : null;
 
-        // Keep both: uploaded percentage cells (may be formula) and computed percent from Dispatch/Return.
+        // Per-row effective %: prefer Percentage cell (already calculated in Excel).
+        // If Excel formula result isn't available, fall back to Return/Dispatch.
+        const effectivePercent = typeof percentFromCell === 'number' ? percentFromCell : percentFromDispatchReturn;
+
+        // Keep both sources + effective (row-by-row).
         const key = block.employeeName.toLowerCase();
-        const prev = agg.get(key) || { employeeName: block.employeeName, values: [], computedValues: [] };
+        const prev = agg.get(key) || {
+          employeeName: block.employeeName,
+          values: [],
+          computedValues: [],
+          effectiveValues: [],
+        };
         if (typeof percentFromCell === 'number') prev.values.push(percentFromCell);
         if (typeof percentFromDispatchReturn === 'number' && Number.isFinite(percentFromDispatchReturn)) {
           prev.computedValues.push(percentFromDispatchReturn);
+        }
+        if (typeof effectivePercent === 'number' && Number.isFinite(effectivePercent)) {
+          prev.effectiveValues.push(effectivePercent);
         }
         agg.set(key, prev);
       }
@@ -198,14 +217,15 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
     if (agg.size === 0) return null;
 
     const employees = new Map();
-    for (const [key, { employeeName, values, computedValues }] of agg.entries()) {
-      const sourceValues = values.length > 0 ? values : computedValues;
+    for (const [key, { employeeName, values, computedValues, effectiveValues }] of agg.entries()) {
+      const sourceValues = effectiveValues.length > 0 ? effectiveValues : (values.length > 0 ? values : computedValues);
       const avgPercent = sourceValues.reduce((a, b) => a + b, 0) / sourceValues.length;
       employees.set(key, {
         employeeName,
         avgPercent,
         percentValues: values,
         computedPercentValues: computedValues,
+        effectivePercentValues: effectiveValues,
       });
     }
 
@@ -224,58 +244,5 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
   const wide = tryParseWideBlocks();
   if (wide) return wide;
 
-  // Fallback to narrow format: name + percent columns.
-  const headerRow = worksheet.getRow(1);
-  const headers = headerRow.values;
-
-  let nameCol = null;
-  let percentCol = null;
-
-  for (let col = 1; col < headers.length; col += 1) {
-    const h = normalizeHeader(headers[col]);
-    if (!nameCol && (h.includes('employee') || h.includes('name'))) nameCol = col;
-    if (!percentCol && isPercentHeader(h)) percentCol = col;
-  }
-
-  // Fallback: first two columns
-  if (!nameCol) nameCol = 1;
-  if (!percentCol) percentCol = 2;
-
-  const { detectedYear, detectedYearSource, dateCol, yearCol } = detectYearFromWorksheet(worksheet, headers);
-
-  const agg = new Map(); // name -> { values }
-
-  worksheet.eachRow((row, rowNumber) => {
-    if (rowNumber === 1) return;
-
-    const rawName = row.getCell(nameCol).value;
-    const employeeName = rawName == null ? '' : String(rawName).trim();
-    if (!employeeName) return;
-
-    const rawPercent = row.getCell(percentCol).value;
-    const percent = parsePercentCell(rawPercent);
-    if (percent == null) return;
-
-    const key = employeeName.toLowerCase();
-    const prev = agg.get(key) || { employeeName, values: [] };
-    prev.values.push(percent);
-    // Keep the original-cased name from first seen row
-    agg.set(key, prev);
-  });
-
-  const result = new Map(); // normalizedName -> { employeeName, avgPercent, percentValues }
-  for (const [key, { employeeName, values }] of agg.entries()) {
-    const avgPercent = values.reduce((a, b) => a + b, 0) / values.length;
-    result.set(key, { employeeName, avgPercent, percentValues: values });
-  }
-
-  return {
-    nameCol,
-    percentCol,
-    dateCol,
-    yearCol,
-    detectedYear,
-    detectedYearSource,
-    employees: result,
-  };
+  throw new Error('Unsupported Excel format: expected 4-column employee blocks ending with Percentage');
 }
