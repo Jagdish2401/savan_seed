@@ -144,7 +144,8 @@ export async function parseEmployeePercentAveragesFromXlsxBuffer(buffer) {
     // This lets us support different column names for the first 3 columns.
     let headerRowIndex = null;
     let bestPercentCount = 0;
-    for (let r = 1; r <= Math.min(10, worksheet.rowCount || 0); r += 1) {
+    // Some files include title rows before the actual header; scan a bit deeper.
+    for (let r = 1; r <= Math.min(30, worksheet.rowCount || 0); r += 1) {
       const row = worksheet.getRow(r);
       const percentCount = row.values.filter((v) => isPercentHeader(normalizeHeader(v))).length;
       if (percentCount > bestPercentCount) {
