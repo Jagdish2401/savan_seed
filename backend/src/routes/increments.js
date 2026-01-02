@@ -340,9 +340,13 @@ router.post('/:year/seasons/:season/metrics/:metric/upload', upload.single('file
         record.seasons[season][metric] = { pct: avgPct, inc: avgIncrement };
         const seasonInc = computeSeasonIncrement(record.seasons[season]);
         record.seasons[season].seasonInc = seasonInc == null ? null : roundTo(seasonInc, 2);
+
       } else {
-        // For other metrics: use normal flow (avg percentage → convert to increment)
-        setMetricOnSeason(record, season, metric, avgPercent);
+        // For salesGrowth, nrv, paymentCollection: ONLY use Percentage cell values (not computed/fallback)
+        // If no percentValues, skip this employee
+        if (!percentValues || percentValues.length === 0) continue;
+        const avgPct = roundTo(percentValues.reduce((a, b) => a + b, 0) / percentValues.length, 2);
+        setMetricOnSeason(record, season, metric, avgPct);
       }
 
       const prevTotal = await getPrevYearTotalSalary(employee._id, year);
