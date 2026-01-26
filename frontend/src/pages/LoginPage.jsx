@@ -177,7 +177,7 @@ export default function LoginPage({ onLoggedIn }) {
             fontFamily: 'monospace'
           }}>
             <div><strong>Email:</strong> hr@gmail.com</div>
-            <div><strong>Password:</strong> 123456</div>
+            <div><strong>Password:</strong> savan@123</div>
           </div>
         </div>
       </div>
