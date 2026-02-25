@@ -1,6 +1,6 @@
 
 # Savan PayRise
-secure HR-only MERN application designed to calculate annual salary increments for agriculture sales employees.
+A secure HR-only MERN application designed to calculate annual salary increments for agriculture sales employees.
 
 Performance evaluation is based on six key parameters: Sales Return, Sales Growth, NRV, Payment Collection, Activity, and Behaviour (maximum 18% increment).
 
