@@ -57,11 +57,13 @@ const incrementRecordSchema = new mongoose.Schema(
 
     monthly: {
       activity: { type: monthlySchema, default: () => ({}) },
-      behaviour: { type: monthlySchema, default: () => ({}) },
     },
 
     activity: { type: metricSchema, default: () => ({}) },
-    behaviour: { type: metricSchema, default: () => ({}) },
+
+    // Behaviour override bonus (+1%) applied once by HR confirmation
+    behaviourBonus: { type: Number, default: 0 },
+    behaviourBonusApplied: { type: Boolean, default: false },
 
     finalIncrementPercent: { type: Number, default: null },
 

@@ -8,10 +8,11 @@ import { EmployeeUser } from '../models/EmployeeUser.js';
 import { IncrementRecord } from '../models/IncrementRecord.js';
 import Year from '../models/Year.js';
 import { UploadedFile } from '../models/UploadedFile.js';
-import { parseEmployeePercentAveragesFromXlsxBuffer } from '../utils/excel.js';
+import { parseEmployeePercentAveragesFromXlsxBuffer, parseCombinedSalesNrvExcel } from '../utils/excel.js';
 import {
   percentToIncrement18,
   salesReturnPercentToIncrement18,
+  salesGrowthPercentToIncrement36,
   computeSeasonIncrement,
   computeYearMetricIncFromSeasons,
   computeFinalIncrementPercent,
@@ -36,7 +37,7 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => {
     const year = req.params.year;
     const season = req.params.season;
-    const metric = req.params.metric;
+    const metric = req.params.metric || 'combined'; // fallback for /upload-combined route
     const timestamp = Date.now();
     const ext = path.extname(file.originalname);
     cb(null, `${year}_${season}_${metric}_${timestamp}${ext}`);
@@ -114,23 +115,16 @@ function getDependencyCoverage(record) {
       return typeof v === 'number' && Number.isFinite(v);
     }) || (typeof record?.activity?.pct === 'number' && Number.isFinite(record.activity.pct));
 
-  const hasBehaviour =
-    MONTH_KEYS.some((k) => {
-      const v = record?.monthly?.behaviour?.[k]?.pct;
-      return typeof v === 'number' && Number.isFinite(v);
-    }) || (typeof record?.behaviour?.pct === 'number' && Number.isFinite(record.behaviour.pct));
-
   const detail = {
     salesReturn: hasSeasonMetric('salesReturn'),
     salesGrowth: hasSeasonMetric('salesGrowth'),
     nrv: hasSeasonMetric('nrv'),
     paymentCollection: hasSeasonMetric('paymentCollection'),
     activity: hasActivity,
-    behaviour: hasBehaviour,
   };
 
   const filled = Object.values(detail).filter(Boolean).length;
-  return { filled, total: 6, detail };
+  return { filled, total: 5, detail };
 }
 
 function escapeRegExp(s) {
@@ -138,12 +132,16 @@ function escapeRegExp(s) {
 }
 
 router.get('/years', async (req, res) => {
-  const filter = req.user?.role === 'employee' && req.user?.employee ? { employee: req.user.employee } : {};
-  const recordYears = await IncrementRecord.distinct('year', filter);
-  const manualYears = req.user?.role === 'hr' ? await Year.find({}, { year: 1 }) : [];
-  const allYears = [...new Set([...recordYears, ...manualYears.map(y => y.year)])];
-  allYears.sort((a, b) => b - a);
-  return res.json({ success: true, years: allYears });
+  try {
+    const filter = req.user?.role === 'employee' && req.user?.employee ? { employee: req.user.employee } : {};
+    const recordYears = await IncrementRecord.distinct('year', filter);
+    const manualYears = req.user?.role === 'hr' ? await Year.find({}, { year: 1 }) : [];
+    const allYears = [...new Set([...recordYears, ...manualYears.map(y => y.year)])];
+    allYears.sort((a, b) => b - a);
+    return res.json({ success: true, years: allYears });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message || 'Failed to fetch years' });
+  }
 });
 
 router.post('/years', async (req, res) => {
@@ -197,7 +195,11 @@ async function getOrCreateRecord(year, employeeId) {
 
 function setMetricOnSeason(record, season, metric, pctAvg) {
   const pct = roundTo(pctAvg, 2);
-  const inc = metric === 'salesReturn' ? salesReturnPercentToIncrement18(pct) : percentToIncrement18(pct);
+  const inc = metric === 'salesReturn'
+    ? salesReturnPercentToIncrement18(pct)
+    : metric === 'salesGrowth'
+      ? salesGrowthPercentToIncrement36(pct)
+      : percentToIncrement18(pct);
   record.seasons[season][metric] = { pct, inc };
   const seasonInc = computeSeasonIncrement(record.seasons[season]);
   record.seasons[season].seasonInc = seasonInc == null ? null : roundTo(seasonInc, 2);
@@ -216,13 +218,11 @@ function recomputeYearAndSalary(record, prevYearTotalSalary) {
   record.yearMetrics.paymentCollectionInc = yPcAvg == null ? null : roundTo(yPcAvg, 2);
 
   const hasAnyMonthlyActivity = MONTH_KEYS.some((k) => record.monthly?.activity?.[k]?.pct != null);
-  const hasAnyMonthlyBehaviour = MONTH_KEYS.some((k) => record.monthly?.behaviour?.[k]?.pct != null);
 
   // Monthly rule: missing months are treated as 0%.
-  // Compatibility rule: if no monthly data exists but activity/behaviour was set directly via legacy yearly upload,
+  // Compatibility rule: if no monthly data exists but activity was set directly via legacy yearly upload,
   // keep that value (do not overwrite with 0%).
   const shouldComputeActivityFromMonthly = hasAnyMonthlyActivity || record.activity?.pct == null;
-  const shouldComputeBehaviourFromMonthly = hasAnyMonthlyBehaviour || record.behaviour?.pct == null;
 
   if (shouldComputeActivityFromMonthly) {
     const activityPctYear = computeYearPctFromMonthlyZeroFill(record.monthly?.activity);
@@ -230,23 +230,17 @@ function recomputeYearAndSalary(record, prevYearTotalSalary) {
     record.activity = { pct, inc: percentToIncrement18(pct) };
   }
 
-  if (shouldComputeBehaviourFromMonthly) {
-    const behaviourPctYear = computeYearPctFromMonthlyZeroFill(record.monthly?.behaviour);
-    const pct = roundTo(behaviourPctYear, 2);
-    record.behaviour = { pct, inc: percentToIncrement18(pct) };
-  }
-
-  // Final increment: fixed divide-by-6 with missing dependencies treated as 0
+  // Final increment: fixed divide-by-5 with missing dependencies treated as 0 (behaviour removed)
   const finalInc = computeFinalIncrementPercent({
     yearSalesReturnInc: ySrAvg,
     yearSalesGrowthInc: ySgAvg,
     yearNrvInc: yNrvAvg,
     yearPaymentCollectionInc: yPcAvg,
     activityInc: record.activity?.inc,
-    behaviourInc: record.behaviour?.inc,
   });
-
-  record.finalIncrementPercent = roundTo(finalInc, 2);
+  const bonus = typeof record.behaviourBonus === 'number' && Number.isFinite(record.behaviourBonus) ? record.behaviourBonus : 0;
+  record.behaviourBonusApplied = bonus !== 0 ? true : record.behaviourBonusApplied;
+  record.finalIncrementPercent = roundTo(finalInc + bonus, 2);
 
   if (typeof prevYearTotalSalary === 'number' && Number.isFinite(prevYearTotalSalary)) {
     record.baseSalary = roundTo(prevYearTotalSalary, 2);
@@ -390,6 +384,115 @@ router.post('/:year/seasons/:season/metrics/:metric/upload', upload.single('file
   }
 });
 
+
+
+// ── Combined upload: Sales Growth + Sales Return + NRV in one file ───────────
+// POST /:year/seasons/:season/upload-combined
+// Body (multipart/form-data): file (Excel with one sheet per employee, sheet name = employee name)
+//
+// Excel structure per sheet:
+//   Sheet name: Employee name (e.g. "Jagdish")
+//   Row 1: Product names (each spanning 9 columns, starting at column C)
+//   Row 2: LAST YEAR | TOTAL SALE | SALE RETURN | NET SALE |
+//          PRICE (AS PER LIST) | CN RATE | NET RATE | TOTAL AMT | S R PERCENTAGE
+//   Row 3+: Party rows — Col A: PARTY NAME, Col B: place
+//   After last party row: Min_Price label + value per product block
+//
+router.post('/:year/seasons/:season/upload-combined', upload.single('file'), async (req, res) => {
+  if (!ensureHr(req, res)) return;
+  try {
+    const year = Number(req.params.year);
+    if (!Number.isInteger(year) || year < 2000 || year > 3000) {
+      return res.status(400).json({ success: false, message: 'Invalid year' });
+    }
+    const season = seasonEnum.parse(req.params.season);
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'Excel file required (field name: file)' });
+    }
+
+    const fileBuffer = await fs.readFile(req.file.path);
+    const { employees: parsedEmployees, errors: parseErrors } = await parseCombinedSalesNrvExcel(fileBuffer);
+
+    const savedResults = [];
+
+    for (const parsed of parsedEmployees) {
+      const employee = await getOrCreateEmployeeByName(parsed.employeeName);
+      const record   = await getOrCreateRecord(year, employee._id);
+
+      // ── Set salesReturn ─────────────────────────────────────────────────
+      record.seasons[season].salesReturn = {
+        pct: roundTo(parsed.avgSRPct, 2),
+        inc: roundTo(parsed.avgSrInc, 2),
+      };
+
+      // ── Set salesGrowth ─────────────────────────────────────────────────
+      record.seasons[season].salesGrowth = {
+        pct: roundTo(parsed.avgSalesGrowthPct, 2),
+        inc: roundTo(parsed.avgSalesGrowthInc, 2),
+      };
+
+      // ── Set nrv ─────────────────────────────────────────────────────────
+      record.seasons[season].nrv = {
+        pct: roundTo(parsed.avgNrvInc, 2),
+        inc: roundTo(parsed.avgNrvInc, 2),
+      };
+
+      // Recompute season increment and yearly/salary
+      const seasonInc = computeSeasonIncrement(record.seasons[season]);
+      record.seasons[season].seasonInc = seasonInc == null ? null : roundTo(seasonInc, 2);
+
+      const prevTotal = await getPrevYearTotalSalary(employee._id, year);
+      recomputeYearAndSalary(record, prevTotal);
+      await record.save();
+
+      savedResults.push({
+        employee:           employee.name,
+        avgNrvInc:          parsed.avgNrvInc,
+        avgSalesGrowthInc:  parsed.avgSalesGrowthInc,
+        avgSalesGrowthPct:  parsed.avgSalesGrowthPct,
+        avgSrInc:           parsed.avgSrInc,
+        avgSRPct:           parsed.avgSRPct,
+        productsProcessed:  parsed.products.length,
+        noMinPriceProducts: parsed.noMinPriceProducts ?? [],
+        seasonInc:          record.seasons[season].seasonInc,
+        yearSalesReturnInc:    record.yearMetrics?.salesReturnInc ?? null,
+        yearSalesGrowthInc:    record.yearMetrics?.salesGrowthInc ?? null,
+        yearNrvInc:            record.yearMetrics?.nrvInc ?? null,
+        finalIncrementPercent: record.finalIncrementPercent ?? null,
+      });
+    }
+
+    // Store file metadata (one record per season, metric = 'combined')
+    await UploadedFile.findOneAndUpdate(
+      { year, season, metric: 'combined' },
+      {
+        year,
+        season,
+        metric: 'combined',
+        filename:     req.file.filename,
+        originalName: req.file.originalname,
+        path:         req.file.path,
+        mimetype:     req.file.mimetype,
+        size:         req.file.size,
+      },
+      { upsert: true, new: true }
+    );
+
+    return res.json({
+      success:        true,
+      season,
+      year,
+      employeesProcessed: savedResults.length,
+      employees:      savedResults,
+      sheetErrors:    parseErrors,   // sheets that were skipped due to errors
+    });
+  } catch (e) {
+    if (req.file?.path) await fs.unlink(req.file.path).catch(() => {});
+    return res.status(400).json({ success: false, message: e.message || 'Combined upload failed' });
+  }
+});
+
 // GET uploaded files for a year
 router.get('/:year/uploaded-files', async (req, res) => {
   if (!ensureHr(req, res)) return;
@@ -406,7 +509,7 @@ router.get('/:year/uploaded-files', async (req, res) => {
   }
 });
 
-// Download uploaded file
+// Download uploaded file (individual metric)
 router.get('/:year/seasons/:season/metrics/:metric/download', async (req, res) => {
   if (!ensureHr(req, res)) return;
   try {
@@ -422,7 +525,33 @@ router.get('/:year/seasons/:season/metrics/:metric/download', async (req, res) =
       return res.status(404).json({ success: false, message: 'No file found for this metric' });
     }
 
-    // Check if file exists on disk
+    try {
+      await fs.access(file.path);
+    } catch {
+      return res.status(404).json({ success: false, message: 'File not found on server' });
+    }
+
+    res.download(file.path, file.originalName);
+  } catch (e) {
+    return res.status(400).json({ success: false, message: e.message || 'Download failed' });
+  }
+});
+
+// Download combined uploaded file
+router.get('/:year/seasons/:season/download-combined', async (req, res) => {
+  if (!ensureHr(req, res)) return;
+  try {
+    const year = Number(req.params.year);
+    if (!Number.isInteger(year) || year < 2000 || year > 3000) {
+      return res.status(400).json({ success: false, message: 'Invalid year' });
+    }
+    const season = seasonEnum.parse(req.params.season);
+
+    const file = await UploadedFile.findOne({ year, season, metric: 'combined' });
+    if (!file) {
+      return res.status(404).json({ success: false, message: 'No combined file found for this season' });
+    }
+
     try {
       await fs.access(file.path);
     } catch {
@@ -533,44 +662,8 @@ router.post('/:year/activity/:month/upload', upload.single('file'), async (req, 
 router.post('/:year/behaviour/upload', upload.single('file'), async (req, res) => {
   if (!ensureHr(req, res)) return;
   try {
-    const year = Number(req.params.year);
-    if (!Number.isInteger(year)) return res.status(400).json({ success: false, message: 'Invalid year' });
-    if (!req.file) return res.status(400).json({ success: false, message: 'Excel file required (field name: file)' });
-
-    const fileBuffer = await fs.readFile(req.file.path);
-    const parsed = await parseEmployeePercentAveragesFromXlsxBuffer(fileBuffer);
-    if (parsed.detectedYear != null && parsed.detectedYear !== year) {
-      return res.status(400).json({
-        success: false,
-        message: `Year mismatch: selected year ${year}, but Excel indicates ${parsed.detectedYear} (${parsed.detectedYearSource || 'date/year column'}). Please select ${parsed.detectedYear} and upload again.`,
-        selectedYear: year,
-        excelYear: parsed.detectedYear,
-        detectedYear: parsed.detectedYear,
-        detectedYearSource: parsed.detectedYearSource || null,
-      });
-    }
-    let updated = 0;
-
-    for (const { employeeName, avgPercent } of parsed.employees.values()) {
-      const employee = await getOrCreateEmployeeByName(employeeName);
-      const record = await getOrCreateRecord(year, employee._id);
-      const pct = roundTo(avgPercent, 2);
-      record.behaviour = { pct, inc: percentToIncrement18(pct) };
-
-      const prevTotal = await getPrevYearTotalSalary(employee._id, year);
-      recomputeYearAndSalary(record, prevTotal);
-      await record.save();
-      updated += 1;
-    }
-
-    return res.json({
-      success: true,
-      updated,
-      detectedColumns: { nameCol: parsed.nameCol, percentCol: parsed.percentCol },
-      detectedYear: parsed.detectedYear ?? null,
-      detectedYearSource: parsed.detectedYearSource ?? null,
-      message: parsed.detectedYear != null ? `Detected year ${parsed.detectedYear} from ${parsed.detectedYearSource || 'date/year column'}.` : null,
-    });
+    if (req.file?.path) await fs.unlink(req.file.path).catch(() => {});
+    return res.status(410).json({ success: false, message: 'Behaviour metric has been removed and uploads are disabled.' });
   } catch (e) {
     return res.status(400).json({ success: false, message: e.message || 'Upload failed' });
   }
@@ -579,113 +672,84 @@ router.post('/:year/behaviour/upload', upload.single('file'), async (req, res) =
 router.post('/:year/behaviour/:month/upload', upload.single('file'), async (req, res) => {
   if (!ensureHr(req, res)) return;
   try {
-    const year = Number(req.params.year);
-    if (!Number.isInteger(year)) return res.status(400).json({ success: false, message: 'Invalid year' });
-    const month = monthSchema.parse(req.params.month);
-    if (!req.file) return res.status(400).json({ success: false, message: 'Excel file required (field name: file)' });
-
-    const fileBuffer = await fs.readFile(req.file.path);
-    const parsed = await parseEmployeePercentAveragesFromXlsxBuffer(fileBuffer);
-    if (parsed.detectedYear != null && parsed.detectedYear !== year) {
-      return res.status(400).json({
-        success: false,
-        message: `Year mismatch: selected year ${year}, but Excel indicates ${parsed.detectedYear} (${parsed.detectedYearSource || 'date/year column'}). Please select ${parsed.detectedYear} and upload again.`,
-        selectedYear: year,
-        excelYear: parsed.detectedYear,
-        detectedYear: parsed.detectedYear,
-        detectedYearSource: parsed.detectedYearSource || null,
-      });
-    }
-    let updated = 0;
-
-    for (const { employeeName, avgPercent } of parsed.employees.values()) {
-      const employee = await getOrCreateEmployeeByName(employeeName);
-      const record = await getOrCreateRecord(year, employee._id);
-
-      const pct = roundTo(avgPercent, 2);
-      record.monthly.behaviour[`m${month}`] = { pct, inc: percentToIncrement18(pct) };
-
-      const prevTotal = await getPrevYearTotalSalary(employee._id, year);
-      recomputeYearAndSalary(record, prevTotal);
-      await record.save();
-      updated += 1;
-    }
-
-    return res.json({
-      success: true,
-      updated,
-      month,
-      detectedColumns: { nameCol: parsed.nameCol, percentCol: parsed.percentCol },
-      detectedYear: parsed.detectedYear ?? null,
-      detectedYearSource: parsed.detectedYearSource ?? null,
-      message: parsed.detectedYear != null ? `Detected year ${parsed.detectedYear} from ${parsed.detectedYearSource || 'date/year column'}.` : null,
-    });
+    if (req.file?.path) await fs.unlink(req.file.path).catch(() => {});
+    return res.status(410).json({ success: false, message: 'Behaviour metric has been removed and uploads are disabled.' });
   } catch (e) {
     return res.status(400).json({ success: false, message: e.message || 'Upload failed' });
   }
 });
 
 router.get('/:year/seasons/:season', async (req, res) => {
-  const year = Number(req.params.year);
-  const season = seasonEnum.parse(req.params.season);
-  const filter = { year };
-  if (req.user?.role === 'employee') {
-    if (!req.user.employee) return res.status(403).json({ success: false, message: 'Forbidden' });
-    filter.employee = req.user.employee;
+  try {
+    const year = Number(req.params.year);
+    if (!Number.isInteger(year) || year < 2000 || year > 3000) {
+      return res.status(400).json({ success: false, message: 'Invalid year' });
+    }
+    const season = seasonEnum.parse(req.params.season);
+    const filter = { year };
+    if (req.user?.role === 'employee') {
+      if (!req.user.employee) return res.status(403).json({ success: false, message: 'Forbidden' });
+      filter.employee = req.user.employee;
+    }
+
+    const records = await IncrementRecord.find(filter)
+      .populate('employee')
+      .lean();
+
+    const rows = records.map((r) => ({
+      employeeName: r.employee?.name,
+      salesReturnInc: r.seasons?.[season]?.salesReturn?.inc ?? null,
+      salesGrowthInc: r.seasons?.[season]?.salesGrowth?.inc ?? null,
+      nrvInc: r.seasons?.[season]?.nrv?.inc ?? null,
+      paymentCollectionInc: r.seasons?.[season]?.paymentCollection?.inc ?? null,
+      seasonInc: r.seasons?.[season]?.seasonInc ?? null,
+    }));
+
+    return res.json({ success: true, year, season, rows });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message || 'Failed to fetch season data' });
   }
-
-  const records = await IncrementRecord.find(filter)
-    .populate('employee')
-    .lean();
-
-  const rows = records.map((r) => ({
-    employeeName: r.employee?.name,
-    salesReturnInc: r.seasons?.[season]?.salesReturn?.inc ?? null,
-    salesGrowthInc: r.seasons?.[season]?.salesGrowth?.inc ?? null,
-    nrvInc: r.seasons?.[season]?.nrv?.inc ?? null,
-    paymentCollectionInc: r.seasons?.[season]?.paymentCollection?.inc ?? null,
-    seasonInc: r.seasons?.[season]?.seasonInc ?? null,
-  }));
-
-  return res.json({ success: true, year, season, rows });
 });
 
 router.get('/:year/monthly/:month', async (req, res) => {
-  const year = Number(req.params.year);
-  if (!Number.isInteger(year)) {
-    return res.status(400).json({ success: false, message: 'Invalid year' });
+  try {
+    const year = Number(req.params.year);
+    if (!Number.isInteger(year) || year < 2000 || year > 3000) {
+      return res.status(400).json({ success: false, message: 'Invalid year' });
+    }
+    const month = monthSchema.parse(req.params.month);
+    const monthKey = `m${month}`;
+    const filter = { year };
+    if (req.user?.role === 'employee') {
+      if (!req.user.employee) return res.status(403).json({ success: false, message: 'Forbidden' });
+      filter.employee = req.user.employee;
+    }
+
+    const records = await IncrementRecord.find(filter)
+      .populate('employee')
+      .lean();
+
+    const rows = records.map((r) => {
+      const activityPct = r?.monthly?.activity?.[monthKey]?.pct;
+      const a = typeof activityPct === 'number' && Number.isFinite(activityPct) ? activityPct : 0;
+      return {
+        employeeName: r.employee?.name,
+        activityPct: roundTo(a, 2),
+      };
+    });
+
+    return res.json({ success: true, year, month, rows });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message || 'Failed to fetch monthly data' });
   }
-  const month = monthSchema.parse(req.params.month);
-  const monthKey = `m${month}`;
-  const filter = { year };
-  if (req.user?.role === 'employee') {
-    if (!req.user.employee) return res.status(403).json({ success: false, message: 'Forbidden' });
-    filter.employee = req.user.employee;
-  }
-
-  const records = await IncrementRecord.find(filter)
-    .populate('employee')
-    .lean();
-
-  const rows = records.map((r) => {
-    const activityPct = r?.monthly?.activity?.[monthKey]?.pct;
-    const behaviourPct = r?.monthly?.behaviour?.[monthKey]?.pct;
-
-    const a = typeof activityPct === 'number' && Number.isFinite(activityPct) ? activityPct : 0;
-    const b = typeof behaviourPct === 'number' && Number.isFinite(behaviourPct) ? behaviourPct : 0;
-
-    return {
-      employeeName: r.employee?.name,
-      activityPct: roundTo(a, 2),
-      behaviourPct: roundTo(b, 2),
-    };
-  });
-
-  return res.json({ success: true, year, month, rows });
 });
 
 router.get('/:year/yearly', async (req, res) => {
+  try {
   const year = Number(req.params.year);
+  if (!Number.isInteger(year) || year < 2000 || year > 3000) {
+    return res.status(400).json({ success: false, message: 'Invalid year' });
+  }
 
   const filter = { year };
   if (req.user?.role === 'employee') {
@@ -707,10 +771,10 @@ router.get('/:year/yearly', async (req, res) => {
       yearNrvInc: r.yearMetrics?.nrvInc ?? null,
       yearPaymentCollectionInc: r.yearMetrics?.paymentCollectionInc ?? null,
       activityInc: r.activity?.inc ?? null,
-      behaviourInc: r.behaviour?.inc ?? null,
       activityMissingMonths: getMissingMonthsFromMonthly(r.monthly?.activity),
-      behaviourMissingMonths: getMissingMonthsFromMonthly(r.monthly?.behaviour),
       finalIncrementPercent: r.finalIncrementPercent ?? null,
+      behaviourBonusApplied: r.behaviourBonusApplied ?? false,
+      behaviourBonus: r.behaviourBonus ?? 0,
       baseSalary: r.baseSalary ?? 0,
       baseSalarySource: r.baseSalarySource ?? 'manual',
       incrementAmount: r.incrementAmount ?? null,
@@ -722,6 +786,9 @@ router.get('/:year/yearly', async (req, res) => {
   });
 
   return res.json({ success: true, year, rows });
+  } catch (e) {
+    return res.status(500).json({ success: false, message: e.message || 'Failed to fetch yearly data' });
+  }
 });
 
 const baseSalarySchema = z.object({
@@ -757,6 +824,46 @@ router.post('/:year/base-salaries', async (req, res) => {
       record.baseSalaryManual = roundTo(item.baseSalary, 2);
       recomputeYearAndSalary(record, prevTotal);
 
+      await record.save();
+      updated += 1;
+    }
+
+    return res.json({ success: true, updated, skipped });
+  } catch (e) {
+    return res.status(400).json({ success: false, message: e.message || 'Invalid request' });
+  }
+});
+
+const behaviourOverrideSchema = z.object({
+  employeeName: z.string().min(1),
+  apply: z.boolean(),
+});
+
+router.post('/:year/behaviour-bonus', async (req, res) => {
+  if (!ensureHr(req, res)) return;
+  try {
+    const year = Number(req.params.year);
+    if (!Number.isInteger(year)) return res.status(400).json({ success: false, message: 'Invalid year' });
+
+    const body = z.array(behaviourOverrideSchema).parse(req.body);
+    let updated = 0;
+    const skipped = [];
+
+    for (const item of body) {
+      const employee = await getOrCreateEmployeeByName(item.employeeName);
+      const record = await getOrCreateRecord(year, employee._id);
+      const prevTotal = await getPrevYearTotalSalary(employee._id, year);
+
+      // One-time apply: once bonus is applied, ignore attempts to remove
+      if (record.behaviourBonusApplied && record.behaviourBonus > 0 && item.apply === false) {
+        skipped.push(item.employeeName);
+        continue;
+      }
+
+      record.behaviourBonus = item.apply ? 1 : 0;
+      record.behaviourBonusApplied = item.apply ? true : record.behaviourBonusApplied;
+
+      recomputeYearAndSalary(record, prevTotal);
       await record.save();
       updated += 1;
     }

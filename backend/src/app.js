@@ -8,6 +8,7 @@ import { env } from './config/env.js';
 import authRoutes from './routes/auth.js';
 import employeeRoutes from './routes/employees.js';
 import incrementRoutes from './routes/increments.js';
+import templateRoutes from './routes/templates.js';
 import { requireAuth, requireHr } from './middleware/auth.js';
 
 const app = express();
@@ -41,6 +42,8 @@ app.use('/api/auth', authRoutes);
 app.use('/api/employees', requireAuth, requireHr, employeeRoutes);
 // increments: allow both HR and employee; per-route checks inside increments router
 app.use('/api/increments', requireAuth, incrementRoutes);
+// Template management: HR-only
+app.use('/api/templates', requireAuth, requireHr, templateRoutes);
 
 app.use((req, res) => res.status(404).json({ success: false, message: 'Route not found' }));
 

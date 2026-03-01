@@ -243,7 +243,6 @@ export default function EmployeePage({ onLogout }) {
                 <th className="table-number">NRV Inc</th>
                 <th className="table-number">Payment Inc</th>
                 <th className="table-number">Activity Inc</th>
-                <th className="table-number">Behaviour Inc</th>
                 <th className="table-number employee-table-highlight-bg-green">Final Inc %</th>
                 <th className="table-number">Composite Score</th>
                 <th className="table-number">Base Salary</th>
@@ -253,7 +252,7 @@ export default function EmployeePage({ onLogout }) {
             </thead>
             <tbody>
               {yearlyRows.length === 0 ? (
-                <tr><td colSpan={12} className="employee-empty-state">
+                <tr><td colSpan={11} className="employee-empty-state">
                   <div className="employee-empty-icon">📊</div>
                   {loading ? 'Loading your data...' : 'No data available'}
                 </td></tr>
@@ -265,7 +264,6 @@ export default function EmployeePage({ onLogout }) {
                   <td className="table-number">{fmt(r.yearNrvInc)}</td>
                   <td className="table-number">{fmt(r.yearPaymentCollectionInc)}</td>
                   <td className="table-number">{fmt(r.activityInc)}</td>
-                  <td className="table-number">{fmt(r.behaviourInc)}</td>
                   <td className="table-number employee-table-highlight-green">{fmt(r.finalIncrementPercent)}%</td>
                   <td className="table-number employee-table-composite">{fmtScore(r.compositeScore)}</td>
                   <td className="table-number">₹{fmt(r.baseSalary)}</td>

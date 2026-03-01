@@ -1,10 +1,16 @@
 import { clampNumber, roundTo } from '../utils/number.js';
 
 const MAX_INC = 18;
+const MAX_INC_SALES_GROWTH = 36;
 
 export function percentToIncrement18(percent) {
   const p = clampNumber(Number(percent), 0, 100);
   return roundTo((p / 100) * MAX_INC, 2);
+}
+
+export function salesGrowthPercentToIncrement36(percent) {
+  const p = clampNumber(Number(percent), 0, 200);
+  return roundTo((p / 200) * MAX_INC_SALES_GROWTH, 2);
 }
 
 // Sales Return: if avg% > 10 => 0; if 0 => 18; linear reverse 0..10
@@ -54,19 +60,18 @@ export function computeYearMetricIncFromSeasons(seasons, metricKey) {
   return sum / 3;
 }
 
-export function computeFinalIncrementPercent({ yearSalesReturnInc, yearSalesGrowthInc, yearNrvInc, yearPaymentCollectionInc, activityInc, behaviourInc }) {
-  // Zero-fill rule: missing dependencies treated as 0; always divide by 6
+export function computeFinalIncrementPercent({ yearSalesReturnInc, yearSalesGrowthInc, yearNrvInc, yearPaymentCollectionInc, activityInc }) {
+  // Zero-fill rule: missing dependencies treated as 0; always divide by 5 (behaviour removed)
   const vals = [
     yearSalesReturnInc,
     yearSalesGrowthInc,
     yearNrvInc,
     yearPaymentCollectionInc,
     activityInc,
-    behaviourInc,
   ].map((v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0));
 
   const sum = vals.reduce((a, b) => a + b, 0);
-  return sum / 6;
+  return sum / 5;
 }
 
 export function computeSalaryNumbers(baseSalary, finalIncrementPercent) {

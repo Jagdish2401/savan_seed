@@ -4,7 +4,7 @@ const uploadedFileSchema = new mongoose.Schema(
   {
     year: { type: Number, required: true, index: true },
     season: { type: String, enum: ['shiyadu', 'unadu', 'chomasu'], required: true },
-    metric: { type: String, enum: ['salesReturn', 'salesGrowth', 'nrv', 'paymentCollection'], required: true },
+    metric: { type: String, enum: ['salesReturn', 'salesGrowth', 'nrv', 'paymentCollection', 'combined'], required: true },
     filename: { type: String, required: true },
     originalName: { type: String, required: true },
     path: { type: String, required: true },

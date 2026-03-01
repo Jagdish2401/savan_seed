@@ -156,20 +156,59 @@ body {
 .btn-tab {
   background: transparent;
   color: var(--text-light);
-  padding: 0.5rem 1rem;
-  border-bottom: 2px solid transparent;
-  border-radius: 0;
-  font-weight: 500;
+  padding: 0.625rem 1.25rem;
+  border-bottom: 3px solid transparent;
+  border-radius: 8px 8px 0 0;
+  font-weight: 600;
+  font-size: 0.95rem;
+  transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
 .btn-tab:hover:not(:disabled) {
   color: var(--primary);
-  background: transparent;
+  background: rgba(59, 130, 246, 0.08);
+  transform: translateY(-2px);
 }
 
 .btn-tab.active {
   color: var(--primary);
   border-bottom-color: var(--primary);
+  background: rgba(59, 130, 246, 0.12);
+  font-weight: 700;
+}
+
+/* Header menu */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.header-menu-toggle {
+  display: none;
+  position: relative;
+}
+
+.header-menu-dropdown {
+  position: absolute;
+  left: 0;
+  top: calc(100% + 8px);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lg);
+  padding: 0.75rem;
+  min-width: 230px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  z-index: 200;
+}
+
+.header-menu-dropdown .btn,
+.header-menu-dropdown select {
+  width: 100%;
 }
 
 .input,
@@ -264,29 +303,66 @@ table {
   border-collapse: separate;
   border-spacing: 0;
   border-radius: 12px;
-  overflow: hidden;
+}
+
+table-wrapper {
+  overflow-x: auto;
+  overflow-y: auto;
+  border-radius: 12px;
+}
+
+table thead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 table thead th {
   background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%);
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 0.875rem;
   text-align: left;
   font-weight: 700;
-  font-size: 0.875rem;
+  font-size: 0.8rem;
   color: white;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.03em;
   border-bottom: none;
+  white-space: nowrap;
+  position: relative;
+}
+
+table thead th:first-child {
   position: sticky;
-  top: 0;
-  z-index: 10;
+  left: 0;
+  z-index: 21;
+  min-width: 160px;
+  max-width: 160px;
+  background: linear-gradient(135deg, var(--primary-light) 0%, var(--primary) 100%);
 }
 
 table tbody td {
-  padding: 1rem 1.25rem;
+  padding: 0.75rem 0.875rem;
   border-bottom: 1px solid var(--border);
-  font-size: 0.95rem;
+  font-size: 0.875rem;
   background: var(--surface);
+  white-space: nowrap;
+}
+
+table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  font-weight: 500;
+  z-index: 9;
+  min-width: 160px;
+  max-width: 160px;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+table tbody tr:hover td:first-child {
+  background: var(--bg);
 }
 
 table tbody tr {
@@ -488,5 +564,304 @@ input[type="file"]::file-selector-button:hover {
   height: 4rem;
   margin: 0 auto 1rem;
   opacity: 0.3;
+}
+
+/* Responsive Design Utilities */
+@media (max-width: 768px) {
+  .card {
+    padding: 1.25rem;
+    border-radius: 12px;
+  }
+
+  table thead th {
+    padding: 0.625rem 0.75rem;
+    font-size: 0.75rem;
+  }
+
+  table tbody td {
+    padding: 0.625rem 0.75rem;
+    font-size: 0.8rem;
+  }
+
+  .btn {
+    padding: 0.5rem 0.9rem;
+    font-size: 0.875rem;
+  }
+}
+
+@media (max-width: 480px) {
+  .card {
+    padding: 1rem;
+  }
+
+  table thead th:first-child,
+  table tbody td:first-child {
+    min-width: 120px;
+    max-width: 120px;
+    font-size: 0.75rem;
+  }
+}
+
+.table-scroll-wrapper {
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 600px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  display: block;
+}
+
+@media (max-width: 768px) {
+  .table-scroll-wrapper {
+    max-height: 500px;
+  }
+}
+
+.table-scroll-wrapper table thead {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+
+.table-scroll-wrapper table tbody td:first-child {
+  position: sticky;
+  left: 0;
+  background: var(--surface);
+  font-weight: 500;
+  z-index: 9;
+  min-width: 160px;
+  max-width: 160px;
+  box-shadow: 2px 0 4px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.table-scroll-wrapper table tbody tr:hover td:first-child {
+  background: var(--bg);
+}
+
+/* Upload card improvements */
+.upload-card {
+  transition: all 0.2s ease;
+  border-radius: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.upload-card:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Professional section headers */
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.section-header-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justifyContent: center;
+  font-size: 1.5rem;
+  flex-shrink: 0;
+}
+
+.section-header-content {
+  flex: 1;
+  min-width: 200px;
+}
+
+.section-title {
+  font-size: 1.35rem;
+  font-weight: 700;
+  margin: 0;
+  color: var(--text);
+}
+
+.section-subtitle {
+  font-size: 0.9rem;
+  color: var(--text-light);
+  margin: 0.25rem 0 0 0;
+}
+
+@media (max-width: 768px) {
+  .section-header-icon {
+    width: 40px;
+    height: 40px;
+    font-size: 1.25rem;
+  }
+
+  .section-title {
+    font-size: 1.15rem;
+  }
+
+  .section-subtitle {
+    font-size: 0.85rem;
+  }
+
+  /* Tab navigation responsive */
+  .btn-tab {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  /* Main content padding */
+  main {
+    padding: 1rem 1rem !important;
+  }
+
+  /* Card improvements */
+  .card {
+    padding: 1.25rem !important;
+  }
+
+  /* Upload grid */
+  .upload-card {
+    min-width: 100%;
+  }
+
+  /* Dashboard metric cards responsive grid */
+  [style*="grid-template-columns: repeat(auto-fit, minmax(280px"] {
+    grid-template-columns: 1fr !important;
+  }
+
+  /* Summary grids */
+  [style*="minWidth: '220px'"] {
+    min-width: 100% !important;
+  }
+
+  /* Header/Navbar responsive */
+  header {
+    height: auto !important;
+    padding: 0.875rem 1rem !important;
+  }
+
+  header > div {
+    flex-direction: column !important;
+    gap: 1rem !important;
+    align-items: flex-start !important;
+  }
+
+  header h1 {
+    font-size: 1.1rem !important;
+  }
+
+  header [style*="gap: '0.75rem'"] {
+    flex-wrap: wrap;
+    gap: 0.5rem !important;
+  }
+
+  /* Show hamburger, hide desktop actions */
+  .header-actions {
+    display: none !important;
+  }
+
+  .header-menu-toggle {
+    display: flex;
+    align-items: center;
+  }
+
+  .header-menu-dropdown {
+    width: min(90vw, 260px);
+  }
+
+  /* Export dropdown button text */
+  .btn-secondary span:not(:first-child):not(:last-child) {
+    display: none;
+  }
+
+  /* Year select */
+  select[style*="width: '100px'"] {
+    width: 80px !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .section-header-icon {
+    width: 36px;
+    height: 36px;
+    font-size: 1.1rem;
+  }
+
+  .section-title {
+    font-size: 1rem;
+  }
+
+  .section-subtitle {
+    font-size: 0.8rem;
+  }
+
+  /* Tab navigation very small screens */
+  .btn-tab {
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8rem;
+    border-bottom-width: 2px;
+  }
+
+  /* Main content padding */
+  main {
+    padding: 0.75rem 0.75rem !important;
+  }
+
+  /* Card improvements */
+  .card {
+    padding: 1rem !important;
+    border-radius: 8px;
+  }
+
+  /* Button adjustments */
+  .btn {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.875rem;
+  }
+
+  /* Metric card icons */
+  [style*="width: '60px'"][style*="height: '60px'"] {
+    width: 48px !important;
+    height: 48px !important;
+    font-size: 1.5rem !important;
+  }
+
+  /* Metric values */
+  h3[style*="font-size: '2.5rem'"] {
+    font-size: 2rem !important;
+  }
+
+  /* Header/Navbar very small screens */
+  header {
+    padding: 0.75rem 0.75rem !important;
+  }
+
+  header h1 {
+    font-size: 1rem !important;
+  }
+
+  header [style*="height: '45px'"] {
+    width: 36px !important;
+    height: 36px !important;
+    font-size: 1.5rem !important;
+  }
+
+  /* Hide button text on very small screens, keep only icons */
+  .btn-secondary span:nth-child(2) {
+    display: none;
+  }
+
+  /* Year select smaller */
+  select[style*="width: '100px'"] {
+    width: 70px !important;
+    font-size: 0.8rem !important;
+    padding: 0.3rem 0.4rem !important;
+  }
+
+  label[style*="fontSize: '0.875rem'"] {
+    font-size: 0.75rem !important;
+  }
 }
 
