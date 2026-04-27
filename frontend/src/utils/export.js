@@ -1,4 +1,6 @@
-import * as XLSX from 'xlsx-js-style';
+import * as XLSX_BASE from 'xlsx-js-style';
+const XLSX = XLSX_BASE.default || XLSX_BASE;
+
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
@@ -6,7 +8,7 @@ function safeFilePart(s) {
   return String(s)
     .trim()
     .replace(/\s+/g, '_')
-    .replace(/[^a-zA-Z0-9_\-]/g, '')
+    .replace(/[^a-zA-Z0-9_-]/g, '')
     .slice(0, 80);
 }
 
@@ -14,7 +16,7 @@ function safeSheetName(s) {
   const raw = String(s || 'Sheet1').trim();
   // Excel sheet name rules: max 31 chars; disallow: : \ / ? * [ ]
   return raw
-    .replace(/[:\\/?*\[\]]/g, ' ')
+    .replace(/:|\\|\/|\?|\*|\[|\]/g, ' ')
     .replace(/\s+/g, ' ')
     .slice(0, 31) || 'Sheet1';
 }
