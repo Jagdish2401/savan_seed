@@ -76,88 +76,75 @@ function buildSumFormula(cols, rowNum) {
 async function insertEmployeeIntoTemplateFile(filePath, employeeLabel) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(filePath);
-  const sheet = workbook.worksheets[0];
-  if (!sheet) return { updated: false, reason: 'no-worksheet' };
-
-  const headerRowNumber = findHeaderRowNumber(sheet);
-  const nameRowNumber = Math.max(1, headerRowNumber - 1);
-
-  const savanStartBefore = findSavanSeedsStartCol(sheet, nameRowNumber);
-  if (!savanStartBefore) return { updated: false, reason: 'no-savan-seeds' };
-
-  if (findEmployeeAlreadyExists(sheet, nameRowNumber, employeeLabel)) {
+  
+  // Check if sheet already exists
+  const existingSheet = workbook.getWorksheet(employeeLabel);
+  if (existingSheet) {
     return { updated: false, reason: 'already-exists' };
   }
 
-  const rowCount = Math.max(sheet.rowCount || 0, headerRowNumber + 1);
-  const emptyCol = new Array(rowCount).fill(null);
+  // Get the first sheet as a master structure
+  const masterSheet = workbook.worksheets[0];
+  if (!masterSheet) {
+    return { updated: false, reason: 'no-worksheet' };
+  }
 
-  // Insert 4 columns before SAVAN SEEDS block
-  sheet.spliceColumns(savanStartBefore, 0, emptyCol, emptyCol, emptyCol, emptyCol);
+  // Add a new worksheet and copy structure from master
+  // Note: ExcelJS duplicateWorksheet is the cleanest way
+  const newSheet = workbook.addWorksheet(employeeLabel);
+  
+  // Copy columns (widths)
+  masterSheet.columns.forEach((col, i) => {
+    newSheet.getColumn(i + 1).width = col.width;
+  });
 
-  // After insertion, SAVAN SEEDS shifts right by 4
-  const savanStart = savanStartBefore + 4;
+  // Copy rows (values, styles, formulas)
+  masterSheet.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+    const newRow = newSheet.getRow(rowNumber);
+    newRow.height = row.height;
+    
+    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+      const newCell = newRow.getCell(colNumber);
+      
+      // Preserve everything for the header rows (usually rows 1 and 2)
+      if (rowNumber <= 2) {
+        if (cell.formula) {
+          const rawFormula = typeof cell.formula === 'object' ? cell.formula.formula : cell.formula;
+          newCell.value = { formula: rawFormula, result: cell.result };
+        } else {
+          newCell.value = cell.value;
+        }
+      } else {
+        // For data rows, preserve formulas but clear values
+        if (cell.formula) {
+          const rawFormula = typeof cell.formula === 'object' ? cell.formula.formula : cell.formula;
+          newCell.value = { formula: rawFormula };
+        } else {
+          // Keep static info like Product/Verity/Packing in first 3 columns
+          if (colNumber <= 3) {
+            newCell.value = cell.value;
+          } else {
+            newCell.value = null; // Clear actual data
+          }
+        }
+      }
+      
+      // Copy style
+      newCell.style = cloneStyle(cell.style);
+    });
+  });
 
-  // Copy widths + styles from the employee block immediately before insertion point
-  const refStart = savanStartBefore - 4;
-  if (refStart >= STATIC_COLS + 1) {
-    for (let i = 0; i < 4; i += 1) {
-      const srcCol = sheet.getColumn(refStart + i);
-      const dstCol = sheet.getColumn(savanStartBefore + i);
-      dstCol.width = srcCol.width;
-    }
-
-    for (let r = 1; r <= sheet.rowCount; r += 1) {
-      const row = sheet.getRow(r);
-      for (let i = 0; i < 4; i += 1) {
-        const src = row.getCell(refStart + i);
-        const dst = row.getCell(savanStartBefore + i);
-        dst.value = dst.value ?? null;
-        dst.style = cloneStyle(src.style);
-        dst.numFmt = src.numFmt;
+  // Handle merged cells
+  // This is tricky in ExcelJS but we can try to copy them
+  const masterMerges = masterSheet._merges; 
+  if (masterMerges) {
+    for (const mergeKey in masterMerges) {
+      try {
+        newSheet.mergeCells(masterMerges[mergeKey]);
+      } catch (e) {
+        // ignore merge errors
       }
     }
-  }
-
-  // Employee name merged cell in name row
-  try {
-    sheet.mergeCells(nameRowNumber, savanStartBefore, nameRowNumber, savanStartBefore + 3);
-  } catch {
-    // ignore merge conflicts
-  }
-  sheet.getRow(nameRowNumber).getCell(savanStartBefore).value = employeeLabel;
-
-  // Header row values: copy from previous employee block headers if possible; otherwise set defaults
-  for (let i = 0; i < 4; i += 1) {
-    const dst = sheet.getRow(headerRowNumber).getCell(savanStartBefore + i);
-    const src = refStart >= 1 ? sheet.getRow(headerRowNumber).getCell(refStart + i) : null;
-    const srcVal = src ? src.value : null;
-    dst.value = srcVal ?? (i === 0 ? 'Dispatch' : i === 1 ? 'Return' : i === 2 ? 'Total sales' : 'Persantage');
-  }
-
-  // Ensure SAVAN SEEDS block formulas include this new employee by recalculating totals.
-  // Dispatch/Return sums are across ALL employee blocks before SAVAN SEEDS.
-  const dispatchCols = [];
-  const returnCols = [];
-  for (let c = STATIC_COLS + 1; c < savanStart; c += 4) {
-    dispatchCols.push(c);
-    returnCols.push(c + 1);
-  }
-
-  for (let r = headerRowNumber + 1; r <= sheet.rowCount; r += 1) {
-    const dispatchFormula = buildSumFormula(dispatchCols, r);
-    const returnFormula = buildSumFormula(returnCols, r);
-
-    const dispatchCell = `${colToLetter(savanStart)}${r}`;
-    const returnCell = `${colToLetter(savanStart + 1)}${r}`;
-
-    if (dispatchFormula) sheet.getRow(r).getCell(savanStart).value = { formula: dispatchFormula };
-    if (returnFormula) sheet.getRow(r).getCell(savanStart + 1).value = { formula: returnFormula };
-
-    sheet.getRow(r).getCell(savanStart + 2).value = { formula: `${dispatchCell}-${returnCell}` };
-    sheet.getRow(r).getCell(savanStart + 3).value = {
-      formula: `IF(${dispatchCell}=0,0,${returnCell}/${dispatchCell}*100)`,
-    };
   }
 
   await workbook.xlsx.writeFile(filePath);

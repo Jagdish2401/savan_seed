@@ -22,6 +22,13 @@ import { roundTo } from '../utils/number.js';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 
+import { validateTemplateStructure } from './templates.js';
+
+function getEmployeeDisplayName(emp) {
+  if (!emp) return 'Unknown';
+  return `${emp.firstName || ''} ${emp.lastName || ''} ${emp.surname || ''}`.trim() || 'No Name';
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
@@ -78,28 +85,38 @@ function getMissingMonthsFromMonthly(monthlyMetric) {
   return missing;
 }
 
-function buildEmployeeLogin(name) {
-  const username = name.trim().toLowerCase().replace(/\s+/g, '');
+function buildEmployeeLogin(firstName) {
+  const username = (firstName || 'employee').trim().toLowerCase().replace(/\s+/g, '');
   const safe = username || 'employee';
   return {
     email: `${safe}@gmail.com`,
-    password: `${safe}@123`,
+    password: `savan@123`,
   };
 }
 
 async function ensureEmployeeUserForEmployee(employee) {
   if (!employee?._id) return;
+  
+  const { email, password } = buildEmployeeLogin(employee.firstName || 'employee');
+  
+  // If Employee model is missing email, update it with the default one
+  if (!employee.email) {
+    employee.email = email;
+    await Employee.findByIdAndUpdate(employee._id, { email });
+  }
+
   const existing = await EmployeeUser.findOne({ employee: employee._id });
   if (existing) return;
 
-  const { email, password } = buildEmployeeLogin(employee.name || 'employee');
   const passwordHash = await EmployeeUser.hashPassword(password);
 
+  const loginEmail = employee.email || email;
+
   // If another account already took that email, skip creating to avoid conflict.
-  const emailTaken = await EmployeeUser.findOne({ email });
+  const emailTaken = await EmployeeUser.findOne({ email: loginEmail });
   if (emailTaken) return;
 
-  await EmployeeUser.create({ email, passwordHash, employee: employee._id });
+  await EmployeeUser.create({ email: loginEmail, passwordHash, employee: employee._id });
 }
 
 function getDependencyCoverage(record) {
@@ -129,6 +146,91 @@ function getDependencyCoverage(record) {
 
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function normalizeProductKey(name) {
+  if (!name) return '';
+  let s = String(name).trim().toLowerCase();
+  s = s.replace(/\s+/g, ' ');
+  // Normalise common weight tokens: "20 kg" -> "20kg"
+  s = s.replace(/(\d+(?:\.\d+)?)\s*(kg|g|gm|gram|grams|ltr|l)\b/g, (_m, n, unit) => `${n}${unit}`);
+  return s;
+}
+
+function aggregateCombinedProducts(parsedEmployees) {
+  const byKey = new Map();
+
+  const asNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : 0);
+  const asNullableNum = (v) => (typeof v === 'number' && Number.isFinite(v) ? v : null);
+
+  for (const emp of parsedEmployees || []) {
+    const products = Array.isArray(emp?.products) ? emp.products : [];
+    for (const p of products) {
+      const rawName = (p?.productName || '').trim();
+      const key = normalizeProductKey(rawName);
+      if (!key) continue;
+
+      const partyCount = Math.max(0, Math.floor(asNum(p?.partyCount)));
+      const weight = partyCount > 0 ? partyCount : 1;
+
+      const prev = byKey.get(key) || {
+        key,
+        productName: rawName || key,
+        employees: new Set(),
+        parties: 0,
+        sumTotalAmt: 0,
+        sumLastYear: 0,
+        netRateWeightedSum: 0,
+        srWeightedSum: 0,
+        nrvSum: 0,
+        nrvCount: 0,
+      };
+
+      // Keep a stable readable name (first non-empty seen)
+      if (!prev.productName && rawName) prev.productName = rawName;
+
+      if (emp?.employeeName) prev.employees.add(emp.employeeName);
+
+      const sumTotalAmt = asNum(p?.sumTotalAmt);
+      const sumLastYear = asNum(p?.sumLastYear);
+      const avgNetRate = asNullableNum(p?.avgNetRate);
+      const avgSRPercent = asNullableNum(p?.avgSRPercent);
+      const nrvInc = asNullableNum(p?.nrvInc);
+
+      prev.parties += weight;
+      prev.sumTotalAmt += sumTotalAmt;
+      prev.sumLastYear += sumLastYear;
+      if (avgNetRate != null) prev.netRateWeightedSum += avgNetRate * weight;
+      if (avgSRPercent != null) prev.srWeightedSum += avgSRPercent * weight;
+      if (nrvInc != null) {
+        prev.nrvSum += nrvInc;
+        prev.nrvCount += 1;
+      }
+
+      byKey.set(key, prev);
+    }
+  }
+
+  const items = [...byKey.values()].map((x) => {
+    const growthPercent = x.sumLastYear > 0
+      ? ((x.sumTotalAmt - x.sumLastYear) / x.sumLastYear) * 100
+      : null;
+    return {
+      productKey: x.key,
+      productName: x.productName,
+      employees: x.employees.size,
+      parties: x.parties,
+      totalAmount: roundTo(x.sumTotalAmt, 2),
+      lastYearAmount: roundTo(x.sumLastYear, 2),
+      growthPercent: growthPercent == null ? null : roundTo(growthPercent, 2),
+      avgNetRate: x.parties > 0 ? roundTo(x.netRateWeightedSum / x.parties, 2) : null,
+      avgSRPercent: x.parties > 0 ? roundTo(x.srWeightedSum / x.parties, 4) : null,
+      avgNrvInc: x.nrvCount > 0 ? roundTo(x.nrvSum / x.nrvCount, 2) : null,
+    };
+  });
+
+  items.sort((a, b) => (b.totalAmount || 0) - (a.totalAmount || 0));
+  return items;
 }
 
 router.get('/years', async (req, res) => {
@@ -163,6 +265,37 @@ router.post('/years', async (req, res) => {
     }
 
     await Year.create({ year: yearNum });
+
+    // --- Template Cloning Logic ---
+    try {
+      const templatesDir = path.join(__dirname, '../../uploads/templates');
+      const files = await fs.readdir(templatesDir);
+      
+      // Find the most recent year before this one (Check Year model AND IncrementRecord)
+      const manualYears = await Year.find({ year: { $lt: yearNum } }).sort({ year: -1 }).limit(1).lean();
+      const recordYears = await IncrementRecord.distinct('year', { year: { $lt: yearNum } });
+      
+      const allPastYears = [...new Set([...manualYears.map(y => y.year), ...recordYears])].sort((a, b) => b - a);
+      const sourceYear = allPastYears[0];
+
+      if (sourceYear) {
+        let clonedCount = 0;
+        for (const file of files) {
+          if (file.startsWith(`${sourceYear}_`) && file.endsWith('.xlsx')) {
+            const newFileName = file.replace(`${sourceYear}_`, `${yearNum}_`);
+            await fs.copyFile(
+              path.join(templatesDir, file),
+              path.join(templatesDir, newFileName)
+            );
+            clonedCount++;
+          }
+        }
+        console.log(`📡 Cloned ${clonedCount} templates from ${sourceYear} to ${yearNum}`);
+      }
+    } catch (err) {
+      console.error('Failed to clone templates:', err);
+    }
+
     return res.json({ success: true, message: `Year ${yearNum} added successfully` });
   } catch (err) {
     if (err.code === 11000) {
@@ -173,14 +306,62 @@ router.post('/years', async (req, res) => {
   }
 });
 
-async function getOrCreateEmployeeByName(employeeName) {
-  const name = employeeName.trim();
-  const existing = await Employee.findOne({ name: new RegExp(`^${escapeRegExp(name)}$`, 'i') });
+async function getOrCreateEmployeeByName(fullName) {
+  const raw = fullName.trim();
+  
+  // 1. Try to extract empId if format is "SS01 - Name"
+  let empId = null;
+  let searchName = raw;
+  if (raw.includes('-')) {
+    const parts = raw.split('-');
+    const potentialId = parts[0].trim();
+    if (potentialId.startsWith('SS')) {
+      empId = potentialId;
+      searchName = parts.slice(1).join('-').trim();
+    }
+  }
+
+  // 2. Try finding by empId (Strong match)
+  if (empId) {
+    const byId = await Employee.findOne({ empId: new RegExp(`^${escapeRegExp(empId)}$`, 'i') });
+    if (byId) {
+      await ensureEmployeeUserForEmployee(byId);
+      return byId;
+    }
+  }
+
+  // 3. Try finding by firstName (Fuzzy match)
+  // Since we migrated names to firstName, we search there first
+  const existing = await Employee.findOne({ 
+    firstName: new RegExp(`^${escapeRegExp(searchName)}$`, 'i') 
+  });
+  
   if (existing) {
     await ensureEmployeeUserForEmployee(existing);
     return existing;
   }
-  const created = await Employee.create({ name });
+
+  // 4. Create new if not found (Fallback)
+  if (!empId) {
+    const allEmps = await Employee.find({}, { empId: 1 }).lean();
+    let maxNum = 0;
+    for (const e of allEmps) {
+      if (e.empId && e.empId.startsWith('SS')) {
+        const n = parseInt(e.empId.replace('SS', ''), 10);
+        if (!isNaN(n) && n > maxNum) maxNum = n;
+      }
+    }
+    empId = `SS${String(maxNum + 1).padStart(2, '0')}`;
+  }
+
+  const { email } = buildEmployeeLogin(searchName);
+  const created = await Employee.create({ 
+    empId: empId,
+    firstName: searchName,
+    lastName: '',
+    surname: '',
+    email: email
+  });
   await ensureEmployeeUserForEmployee(created);
   return created;
 }
@@ -280,6 +461,13 @@ router.post('/:year/seasons/:season/metrics/:metric/upload', upload.single('file
 
     if (!req.file) {
       return res.status(400).json({ success: false, message: 'Excel file required (field name: file)' });
+    }
+
+    // Validate template structure first
+    const validation = await validateTemplateStructure(req.file.path, metric);
+    if (!validation.valid) {
+      await fs.unlink(req.file.path);
+      return res.status(400).json({ success: false, message: `Template structure invalid: ${validation.error}` });
     }
 
     // Read the file buffer for parsing
@@ -414,6 +602,8 @@ router.post('/:year/seasons/:season/upload-combined', upload.single('file'), asy
     const fileBuffer = await fs.readFile(req.file.path);
     const { employees: parsedEmployees, errors: parseErrors } = await parseCombinedSalesNrvExcel(fileBuffer);
 
+    const overallItems = aggregateCombinedProducts(parsedEmployees);
+
     const savedResults = [];
 
     for (const parsed of parsedEmployees) {
@@ -485,11 +675,52 @@ router.post('/:year/seasons/:season/upload-combined', upload.single('file'), asy
       year,
       employeesProcessed: savedResults.length,
       employees:      savedResults,
+      overallItems,
       sheetErrors:    parseErrors,   // sheets that were skipped due to errors
     });
   } catch (e) {
     if (req.file?.path) await fs.unlink(req.file.path).catch(() => {});
     return res.status(400).json({ success: false, message: e.message || 'Combined upload failed' });
+  }
+});
+
+// Item analytics from the last uploaded combined file
+// GET /:year/seasons/:season/combined-items
+router.get('/:year/seasons/:season/combined-items', async (req, res) => {
+  if (!ensureHr(req, res)) return;
+  try {
+    const year = Number(req.params.year);
+    if (!Number.isInteger(year) || year < 2000 || year > 3000) {
+      return res.status(400).json({ success: false, message: 'Invalid year' });
+    }
+    const season = seasonEnum.parse(req.params.season);
+
+    const file = await UploadedFile.findOne({ year, season, metric: 'combined' });
+    if (!file) {
+      return res.json({
+        success: true,
+        year,
+        season,
+        overallItems: [],
+        message: 'No data uploaded yet'
+      });
+    }
+
+    const fileBuffer = await fs.readFile(file.path);
+    const { employees: parsedEmployees, errors: parseErrors } = await parseCombinedSalesNrvExcel(fileBuffer);
+    const overallItems = aggregateCombinedProducts(parsedEmployees);
+
+    return res.json({
+      success: true,
+      year,
+      season,
+      updatedAt: file.updatedAt,
+      employeesProcessed: parsedEmployees.length,
+      overallItems,
+      sheetErrors: parseErrors,
+    });
+  } catch (e) {
+    return res.status(400).json({ success: false, message: e.message || 'Failed to compute item analytics' });
   }
 });
 
@@ -697,7 +928,7 @@ router.get('/:year/seasons/:season', async (req, res) => {
       .lean();
 
     const rows = records.map((r) => ({
-      employeeName: r.employee?.name,
+      employeeName: getEmployeeDisplayName(r.employee),
       salesReturnInc: r.seasons?.[season]?.salesReturn?.inc ?? null,
       salesGrowthInc: r.seasons?.[season]?.salesGrowth?.inc ?? null,
       nrvInc: r.seasons?.[season]?.nrv?.inc ?? null,
@@ -733,7 +964,7 @@ router.get('/:year/monthly/:month', async (req, res) => {
       const activityPct = r?.monthly?.activity?.[monthKey]?.pct;
       const a = typeof activityPct === 'number' && Number.isFinite(activityPct) ? activityPct : 0;
       return {
-        employeeName: r.employee?.name,
+        employeeName: getEmployeeDisplayName(r.employee),
         activityPct: roundTo(a, 2),
       };
     });
@@ -765,7 +996,7 @@ router.get('/:year/yearly', async (req, res) => {
     const coverage = getDependencyCoverage(r);
 
     return {
-      employeeName: r.employee?.name,
+      employeeName: getEmployeeDisplayName(r.employee),
       yearSalesReturnInc: r.yearMetrics?.salesReturnInc ?? null,
       yearSalesGrowthInc: r.yearMetrics?.salesGrowthInc ?? null,
       yearNrvInc: r.yearMetrics?.nrvInc ?? null,

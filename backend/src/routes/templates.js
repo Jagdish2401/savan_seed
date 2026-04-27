@@ -27,113 +27,65 @@ const upload = multer({ storage, limits: { fileSize: 10 * 1024 * 1024 } });
 
 // Validation constants
 const STATIC_COLUMNS = ['Product', 'Verity', 'Packing'];
-const EMPLOYEE_BLOCK_HEADERS = ['Dispatch', 'Return', 'Total sales', 'persantage'];
+const EMPLOYEE_BLOCK_HEADERS = ['Invoice Amount', 'Collected Amount', 'Outstanding', 'Collection %'];
 
 /**
  * Validates Excel template structure
  * @param {string} filePath - Path to uploaded Excel file
- * @returns {Promise<{valid: boolean, error?: string, employeeCount?: number}>}
+ * @param {string} metric - The type of metric
  */
-async function validateTemplateStructure(filePath) {
+export async function validateTemplateStructure(filePath, metric) {
   try {
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(filePath);
     const sheet = workbook.worksheets[0];
+    if (!sheet) return { valid: false, error: 'No worksheet found.' };
 
-    if (!sheet) {
-      return { valid: false, error: 'No worksheet found in the uploaded file.' };
-    }
+    const m = (metric || '').toLowerCase();
+    const expectedStatic = (m === 'paymentcollection' || m === 'activity')
+      ? ['Date', 'Day', 'General Notes']
+      : ['Product', 'Verity', 'Packing'];
 
-    // Find the header row by searching for "Product" in first column (check rows 1-3)
-    let headerRow = null;
-    let headerRowNumber = 0;
-    for (let row = 1; row <= 3; row++) {
-      const firstCell = sheet.getRow(row).getCell(1);
-      const firstValue = firstCell.value ? String(firstCell.value).trim().toLowerCase() : '';
-      if (firstValue === 'product') {
-        headerRow = sheet.getRow(row);
-        headerRowNumber = row;
-        break;
-      }
-    }
-
-    if (!headerRow) {
-      return { valid: false, error: 'Header row not found. First column should contain "Product".' };
-    }
-
-    const headers = [];
+    // Find header row (check row 2)
+    let headerRow = sheet.getRow(2);
+    let firstVal = headerRow.getCell(1).value ? String(headerRow.getCell(1).value).trim().toLowerCase() : '';
     
-    // Read up to 100 columns to ensure we get all headers
-    const maxCol = Math.max(sheet.columnCount, 100);
-    for (let col = 1; col <= maxCol; col++) {
-      const cell = headerRow.getCell(col);
-      const value = cell.value ? String(cell.value).trim().toLowerCase() : '';
-      headers.push(value);
-      
-      // Stop if we found at least static columns + employee blocks and hit 3+ consecutive empty cells
-      if (col > STATIC_COLUMNS.length + 4 && !value && !headers[col - 2] && !headers[col - 3]) {
-        break;
-      }
-    }
-
-    // Remove trailing empty headers
-    while (headers.length > 0 && !headers[headers.length - 1]) {
-      headers.pop();
-    }
-
-    // Check if we have at least the static columns
-    if (headers.length < STATIC_COLUMNS.length) {
-      return { valid: false, error: `Missing required static columns. Found only ${headers.length} column(s): ${headers.join(', ')}` };
-    }
-
-    // Validate static columns (case-insensitive)
-    for (let i = 0; i < STATIC_COLUMNS.length; i++) {
-      if (headers[i] !== STATIC_COLUMNS[i].toLowerCase()) {
-        return { 
-          valid: false, 
-          error: `Static column mismatch at position ${i + 1}. Expected "${STATIC_COLUMNS[i]}", found "${headerRow.getCell(i+1).value}".` 
-        };
-      }
-    }
-
-    // Validate employee blocks (each block should be 4 columns, case-insensitive)
-    let col = STATIC_COLUMNS.length;
-    let employeeCount = 0;
-
-    while (col < headers.length) {
-      // Check if we have enough columns for a complete block
-      if (col + EMPLOYEE_BLOCK_HEADERS.length > headers.length) {
-        return { 
-          valid: false, 
-          error: `Incomplete employee block starting at column ${col + 1}.` 
-        };
-      }
-
-      // Validate employee block headers
-      for (let i = 0; i < EMPLOYEE_BLOCK_HEADERS.length; i++) {
-        const expected = EMPLOYEE_BLOCK_HEADERS[i].toLowerCase();
-        const actual = headers[col + i];
-        
-        if (actual !== expected) {
-          return { 
-            valid: false, 
-            error: `Employee block header mismatch at column ${col + i + 1}. Expected "${EMPLOYEE_BLOCK_HEADERS[i]}", found "${headerRow.getCell(col + i + 1).value}".` 
-          };
+    if (firstVal !== expectedStatic[0].toLowerCase()) {
+      for (let r = 1; r <= 5; r++) {
+        const val = sheet.getRow(r).getCell(1).value ? String(sheet.getRow(r).getCell(1).value).trim().toLowerCase() : '';
+        if (val === expectedStatic[0].toLowerCase()) {
+          headerRow = sheet.getRow(r);
+          break;
         }
       }
-
-      employeeCount++;
-      col += EMPLOYEE_BLOCK_HEADERS.length;
     }
 
-    if (employeeCount === 0) {
-      return { valid: false, error: 'No employee blocks found in the template.' };
+    // Validate static columns
+    for (let i = 0; i < expectedStatic.length; i++) {
+      const actual = headerRow.getCell(i + 1).value ? String(headerRow.getCell(i + 1).value).trim().toLowerCase() : '';
+      if (actual !== expectedStatic[i].toLowerCase()) {
+        return { valid: false, error: `Missing "${expectedStatic[i]}" column.` };
+      }
+    }
+
+    // Read all headers to count employees
+    const headers = [];
+    for (let col = 1; col <= 200; col++) {
+      const val = headerRow.getCell(col).value;
+      if (col > 3 && !val && !headerRow.getCell(col + 1).value) break;
+      headers.push(val ? String(val).trim().toLowerCase() : '');
+    }
+
+    let employeeCount = 0;
+    let col = 4;
+    while (col <= headers.length) {
+      if (headers[col - 1]) employeeCount++;
+      col += 4;
     }
 
     return { valid: true, employeeCount };
   } catch (error) {
-    console.error('Template validation error:', error);
-    return { valid: false, error: `Validation error: ${error.message}` };
+    return { valid: false, error: error.message };
   }
 }
 
@@ -145,41 +97,57 @@ async function validateTemplateStructure(filePath) {
 async function clearTemplateData(sourcePath, destPath) {
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(sourcePath);
-  const sheet = workbook.worksheets[0];
 
-  if (!sheet) {
-    throw new Error('No worksheet found');
-  }
-
-  // Find the header row by searching for "Product" in first column (check rows 1-3)
-  let headerRowNumber = 1;
-  for (let row = 1; row <= 3; row++) {
-    const firstCell = sheet.getRow(row).getCell(1);
-    const firstValue = firstCell.value ? String(firstCell.value).trim().toLowerCase() : '';
-    if (firstValue === 'product') {
-      headerRowNumber = row;
-      break;
+  // Process ALL worksheets
+  for (const sheet of workbook.worksheets) {
+    // Clear data rows (starting from row 3 - assuming rows 1-2 are headers)
+    const lastRow = sheet.rowCount;
+    for (let rowNum = 3; rowNum <= lastRow; rowNum++) {
+      const row = sheet.getRow(rowNum);
+      row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
+        // Only clear if cell doesn't have a formula and it's after the static columns (Product, Verity, Packing)
+        // Actually, let's just clear everything after col 3 that isn't a formula
+        if (colNumber > 3 && !cell.formula) {
+          cell.value = null;
+        }
+      });
     }
-  }
-
-  // Clear data rows (starting after the header row)
-  const lastRow = sheet.rowCount;
-  for (let rowNum = headerRowNumber + 1; rowNum <= lastRow; rowNum++) {
-    const row = sheet.getRow(rowNum);
-    row.eachCell({ includeEmpty: true }, (cell, colNumber) => {
-      // Only clear if cell doesn't have a formula
-      if (!cell.formula) {
-        cell.value = null;
-      }
-    });
   }
 
   await workbook.xlsx.writeFile(destPath);
 }
 
 /**
+ * GET /api/templates/activity/download
+ */
+router.get('/activity/download', async (req, res) => {
+  try {
+    const { Employee } = await import('../models/Employee.js');
+    const employees = await Employee.find().sort({ firstName: 1 }).lean();
+    return generateWideBlockTemplate(res, employees, 'activity');
+  } catch (error) {
+    console.error('Activity template error:', error);
+    res.status(500).json({ error: 'Failed to generate activity template' });
+  }
+});
+
+/**
+ * GET /api/templates/:year/:season/paymentCollection/download
+ */
+router.get('/:year/:season/paymentCollection/download', async (req, res) => {
+  try {
+    const { Employee } = await import('../models/Employee.js');
+    const employees = await Employee.find().sort({ firstName: 1 }).lean();
+    return generateWideBlockTemplate(res, employees, 'paymentCollection');
+  } catch (error) {
+    console.error('Payment template error:', error);
+    res.status(500).json({ error: 'Failed to generate payment template' });
+  }
+});
+
+/**
  * GET /api/templates/:year/:season/:metric/download
- * Download template for a specific season and metric
+ * Download template for a specific season and metric (Static Fallback)
  */
 router.get('/:year/:season/:metric/download', async (req, res) => {
   try {
@@ -192,7 +160,8 @@ router.get('/:year/:season/:metric/download', async (req, res) => {
       await fs.access(templatePath);
     } catch {
       return res.status(404).json({ 
-        error: 'Template not found for this season and metric. Please upload a valid template first.' 
+        success: false,
+        message: `Template for ${year} ${season} (${metric}) not found. Please ensure the year is initialized or a template is uploaded.` 
       });
     }
 
@@ -222,6 +191,134 @@ router.get('/:year/:season/:metric/download', async (req, res) => {
   }
 });
 
+async function generateWideBlockTemplate(res, employees, type) {
+  const workbook = new ExcelJS.Workbook();
+  const sheetName = type === 'activity' ? 'Activity Report' : 'Payment Collection';
+  const sheet = workbook.addWorksheet(sheetName);
+  
+  const colorThemes = [
+    { name: 'FFDCFCE7', header: 'FF16A34A' }, // Green
+    { name: 'FFDBEAFE', header: 'FF2563EB' }, // Blue
+    { name: 'FFF3E8FF', header: 'FF9333EA' }, // Purple
+    { name: 'FFFFEDD5', header: 'FFEA580C' }  // Orange
+  ];
+
+  sheet.getColumn(1).width = 12; // Date
+  sheet.getColumn(2).width = 12; // Day
+  sheet.getColumn(3).width = 25; // General Notes
+  
+  sheet.getCell(2, 1).value = 'Date';
+  sheet.getCell(2, 2).value = 'Day';
+  sheet.getCell(2, 3).value = 'General Notes';
+  [1, 2, 3].forEach(c => {
+    sheet.getCell(2, c).style = {
+      font: { bold: true, color: { argb: 'FFFFFFFF' } },
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4B5563' } },
+      alignment: { horizontal: 'center', vertical: 'middle', wrapText: true }
+    };
+  });
+
+  let currentCol = 4;
+  employees.forEach((emp, index) => {
+    const theme = colorThemes[index % colorThemes.length];
+    const label = `${emp.empId} - ${emp.firstName}`;
+    
+    const nameCell = sheet.getCell(1, currentCol);
+    nameCell.value = label;
+    nameCell.style = {
+      font: { bold: true, size: 12 },
+      alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+      fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: theme.name } },
+      border: { 
+        left: { style: 'medium', color: { argb: theme.header } },
+        right: { style: 'medium', color: { argb: theme.header } },
+        top: { style: 'medium', color: { argb: theme.header } }
+      }
+    };
+    sheet.mergeCells(1, currentCol, 1, currentCol + 3);
+    
+    const headers = type === 'activity' 
+      ? ['Meeting Attended', 'Field Work', 'Remarks', 'Activity %']
+      : ['Invoice Amount', 'Collected Amount', 'Outstanding', 'Collection %'];
+      
+    headers.forEach((h, i) => {
+      const cell = sheet.getCell(2, currentCol + i);
+      cell.value = h;
+      cell.style = {
+        font: { bold: true, color: { argb: 'FFFFFFFF' } },
+        fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: theme.header } },
+        alignment: { horizontal: 'center', vertical: 'middle', wrapText: true },
+        border: { 
+          left: i === 0 ? { style: 'medium', color: { argb: theme.header } } : undefined,
+          right: i === 3 ? { style: 'medium', color: { argb: theme.header } } : undefined
+        }
+      };
+      sheet.getColumn(currentCol + i).width = 20;
+    });
+
+    for (let r = 3; r <= 32; r++) {
+      const c1 = sheet.getCell(r, currentCol).address;
+      const c2 = sheet.getCell(r, currentCol + 1).address;
+      const c3 = sheet.getCell(r, currentCol + 2);
+      const c4 = sheet.getCell(r, currentCol + 3);
+      
+      if (type === 'activity') {
+        c4.value = {
+          formula: `IF(${c1}="Yes",50,0) + IF(${c2}="Completed",50,IF(${c2}="In Progress",25,0))`,
+          result: 0
+        };
+      } else {
+        c3.value = { formula: `${c1}-${c2}`, result: 0 };
+        c4.value = { formula: `IF(${c1}=0,0,(${c2}/${c1})*100)`, result: 0 };
+      }
+
+      c4.font = { bold: true, color: { argb: theme.header } };
+      
+      // Zebra striping
+      if (r % 2 === 0) {
+        for (let i = 0; i < 4; i++) {
+          sheet.getCell(r, currentCol + i).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: theme.name.replace('FF', '0F') } };
+        }
+      }
+      
+      // Add borders and dropdowns
+      for (let i = 0; i < 4; i++) {
+        const cell = sheet.getCell(r, currentCol + i);
+        cell.border = {
+          top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          left: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
+          right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
+        };
+
+        if (type === 'activity') {
+          if (i === 0) { // Meeting Attended
+            cell.dataValidation = {
+              type: 'list',
+              allowBlank: true,
+              formulae: ['"Yes,No"']
+            };
+          } else if (i === 1) { // Field Work
+            cell.dataValidation = {
+              type: 'list',
+              allowBlank: true,
+              formulae: ['"Completed,In Progress,Not Started"']
+            };
+          }
+        }
+      }
+    }
+
+    currentCol += 4;
+  });
+
+  const filename = type === 'activity' ? 'Activity_Template.xlsx' : 'Payment_Collection_Template.xlsx';
+  res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+  res.setHeader('Content-Disposition', `attachment; filename=${filename}`);
+  await workbook.xlsx.write(res);
+  res.end();
+}
+
 /**
  * POST /api/templates/:year/:season/:metric/upload
  * Upload and validate template for a specific season and metric
@@ -236,7 +333,7 @@ router.post('/:year/:season/:metric/upload', upload.single('file'), async (req, 
 
   try {
     // Validate template structure
-    const validation = await validateTemplateStructure(uploadedPath);
+    const validation = await validateTemplateStructure(uploadedPath, metric);
 
     if (!validation.valid) {
       // Delete invalid file
@@ -279,6 +376,284 @@ router.post('/:year/:season/:metric/upload', upload.single('file'), async (req, 
     } catch {}
 
     res.status(500).json({ error: 'Failed to process template upload' });
+  }
+});
+
+/**
+ * Lists all products in the Combined master template
+ */
+router.get('/:year/:season/combined/products', async (req, res) => {
+  try {
+    const { year, season } = req.params;
+    const templatePath = path.join(__dirname, `../../uploads/templates/${year}_${season}_combined_template.xlsx`);
+    
+    try {
+      await fs.access(templatePath);
+    } catch {
+      return res.json({ success: true, products: [] });
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.readFile(templatePath);
+    const sheet = workbook.worksheets[0];
+    if (!sheet) return res.json({ success: true, products: [] });
+
+    const products = [];
+    const row1 = sheet.getRow(1);
+    for (let c = 3; c <= 500; c += 9) {
+      const name = String(row1.getCell(c).value || '').trim();
+      if (name) {
+        // Also try to find Min Price for this product
+        let minPrice = 0;
+        for (let r = 3; r <= 1000; r++) {
+          const rowVal = String(sheet.getRow(r).getCell(1).value || '').toLowerCase();
+          if (rowVal.includes('min') || rowVal.includes('nrv')) {
+            for (let pc = 1; pc <= 500; pc++) {
+              const cellVal = String(sheet.getRow(r).getCell(pc).value || '').toLowerCase();
+              if (cellVal.includes(name.toLowerCase())) {
+                minPrice = Number(sheet.getRow(r).getCell(pc + 1).value || 0);
+                break;
+              }
+            }
+          }
+          if (minPrice > 0) break;
+        }
+        products.push({ name, minPrice });
+      }
+    }
+
+    return res.json({ success: true, products });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+/**
+ * Dynamically adds a new Product block (9 columns) to a Combined template
+ */
+router.post('/:year/:season/combined/add-product', async (req, res) => {
+  try {
+    const { year, season } = req.params;
+    const { productName, minPrice } = req.body;
+
+    if (!productName || !minPrice) {
+      return res.status(400).json({ success: false, message: 'Product Name and Min Price are required' });
+    }
+
+    const seasonsToUpdate = season === 'all' ? ['shiyadu', 'unadu', 'chomasu'] : [season];
+    const results = [];
+
+    for (const s of seasonsToUpdate) {
+      const templatePath = path.join(__dirname, `../../uploads/templates/${year}_${s}_combined_template.xlsx`);
+      
+      try {
+        await fs.access(templatePath);
+      } catch {
+        if (season === 'all') continue; // Skip missing ones if 'all'
+        return res.status(404).json({ success: false, message: `Template for ${s} not found.` });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(templatePath);
+
+      for (const sheet of workbook.worksheets) {
+        if (sheet.name.startsWith('#')) continue;
+
+        let nextCol = 3; 
+        let safety = 0;
+        while (sheet.getRow(2).getCell(nextCol).value && safety < 100) {
+          nextCol += 9;
+          safety++;
+        }
+
+        const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
+        const borderStyle = {
+          top: { style: 'thin' },
+          left: { style: 'thin' },
+          bottom: { style: 'thin' },
+          right: { style: 'thin' }
+        };
+
+        sheet.mergeCells(1, nextCol, 1, nextCol + 8);
+        const nameCell = sheet.getRow(1).getCell(nextCol);
+        nameCell.value = productName;
+        nameCell.font = { bold: true, size: 12 };
+        nameCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        
+        for (let i = 0; i < 9; i++) {
+          const cell = sheet.getRow(1).getCell(nextCol + i);
+          cell.fill = headerFill;
+          cell.border = borderStyle;
+        }
+        
+        const subHeaders = ['LAST YEAR', 'TOTAL SALE', 'NET SALE', 'TARGET', 'PRICE LIST', 'CN RATE', 'NET RATE', 'TOTAL AMT', 'SR PERCENT'];
+        subHeaders.forEach((h, i) => {
+          const cell = sheet.getRow(2).getCell(nextCol + i);
+          cell.value = h;
+          cell.font = { bold: true, size: 10 };
+          cell.fill = headerFill;
+          cell.border = borderStyle;
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        });
+
+        for (let r = 3; r <= 100; r++) {
+          const row = sheet.getRow(r);
+          for (let i = 0; i < 9; i++) {
+            row.getCell(nextCol + i).border = borderStyle;
+          }
+        }
+
+        let minPriceRow = -1;
+        const totalRows = Math.min(sheet.rowCount + 20, 1000);
+        for (let r = 3; r <= totalRows; r++) {
+          const rowVal = sheet.getRow(r).getCell(1).value;
+          const label = String(rowVal || '').toLowerCase();
+          if (label.includes('min') || label.includes('nrv')) {
+            minPriceRow = r;
+            break;
+          }
+        }
+
+        if (minPriceRow === -1) {
+          minPriceRow = Math.max(sheet.rowCount + 2, 50);
+          sheet.getRow(minPriceRow).getCell(1).value = 'Min_Price Config';
+        }
+
+        sheet.getRow(minPriceRow).getCell(nextCol).value = `${productName} NRV`;
+        sheet.getRow(minPriceRow).getCell(nextCol + 1).value = Number(minPrice);
+        sheet.getRow(minPriceRow).getCell(nextCol + 1).font = { bold: true };
+      }
+
+      try {
+        await workbook.xlsx.writeFile(templatePath);
+        results.push(s);
+      } catch (writeErr) {
+        if (writeErr.code === 'EBUSY' || writeErr.code === 'EPERM') {
+          throw new Error('FILE_LOCKED');
+        }
+        throw writeErr;
+      }
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ success: false, message: 'No templates were found to update.' });
+    }
+
+    return res.json({ 
+      success: true, 
+      message: season === 'all' 
+        ? `Product "${productName}" added to all seasons.` 
+        : `Product "${productName}" added successfully.` 
+    });
+  } catch (error) {
+    console.error('Add product error:', error);
+    if (error.message === 'FILE_LOCKED') {
+      return res.status(500).json({ success: false, message: 'The Excel file is open in another program. Please close it and try again.' });
+    }
+    return res.status(500).json({ success: false, message: error.message || 'Operation failed' });
+  }
+});
+
+/**
+ * Dynamically removes a Product block (9 columns) from a Combined template
+ */
+router.post('/:year/:season/combined/remove-product', async (req, res) => {
+  try {
+    const { year, season } = req.params;
+    const { productName } = req.body;
+
+    if (!productName) {
+      return res.status(400).json({ success: false, message: 'Product Name is required' });
+    }
+
+    const seasonsToUpdate = season === 'all' ? ['shiyadu', 'unadu', 'chomasu'] : [season];
+    const results = [];
+
+    for (const s of seasonsToUpdate) {
+      const templatePath = path.join(__dirname, `../../uploads/templates/${year}_${s}_combined_template.xlsx`);
+      
+      try {
+        await fs.access(templatePath);
+      } catch {
+        if (season === 'all') continue;
+        return res.status(404).json({ success: false, message: `Template for ${s} not found.` });
+      }
+
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(templatePath);
+
+      let removedInThisFile = false;
+      for (const sheet of workbook.worksheets) {
+        if (sheet.name.startsWith('#')) continue;
+
+        let colToDelete = -1;
+        const row1 = sheet.getRow(1);
+        for (let c = 3; c <= 500; c += 9) {
+          const val = String(row1.getCell(c).value || '').trim();
+          if (val.toLowerCase() === productName.toLowerCase()) {
+            colToDelete = c;
+            break;
+          }
+        }
+
+        if (colToDelete !== -1) {
+          sheet.spliceColumns(colToDelete, 9);
+          removedInThisFile = true;
+
+          let minPriceRow = -1;
+          const totalRows = Math.min(sheet.rowCount + 20, 1000);
+          for (let r = 3; r <= totalRows; r++) {
+            const rowVal = sheet.getRow(r).getCell(1).value;
+            const label = String(rowVal || '').toLowerCase();
+            if (label.includes('min') || label.includes('nrv')) {
+              minPriceRow = r;
+              break;
+            }
+          }
+
+          if (minPriceRow !== -1) {
+            const row = sheet.getRow(minPriceRow);
+            for (let c = 3; c <= 500; c += 2) {
+              const val = String(row.getCell(c).value || '').trim();
+              if (val.toLowerCase().includes(productName.toLowerCase())) {
+                row.getCell(c).value = null;
+                row.getCell(c + 1).value = null;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (removedInThisFile) {
+        try {
+          await workbook.xlsx.writeFile(templatePath);
+          results.push(s);
+        } catch (writeErr) {
+          if (writeErr.code === 'EBUSY' || writeErr.code === 'EPERM') {
+            throw new Error('FILE_LOCKED');
+          }
+          throw writeErr;
+        }
+      }
+    }
+
+    if (results.length === 0) {
+      return res.status(404).json({ success: false, message: `Product "${productName}" not found in any template.` });
+    }
+
+    return res.json({ 
+      success: true, 
+      message: season === 'all' 
+        ? `Product "${productName}" removed from all seasons.` 
+        : `Product "${productName}" removed successfully.` 
+    });
+  } catch (error) {
+    console.error('Remove product error:', error);
+    if (error.message === 'FILE_LOCKED') {
+      return res.status(500).json({ success: false, message: 'The Excel file is open in another program. Please close it and try again.' });
+    }
+    return res.status(500).json({ success: false, message: error.message || 'Operation failed' });
   }
 });
 
