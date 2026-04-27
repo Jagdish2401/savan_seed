@@ -48,6 +48,9 @@ Thumbs.db
 backend/uploads/
 uploads/
 
+# Office temporary files
+~$*.docx
+
 # Test coverage
 coverage/
 *.coverage
