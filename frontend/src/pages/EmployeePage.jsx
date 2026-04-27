@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { Eye, EyeOff, Lock, CheckCircle } from 'lucide-react';
 import './EmployeePage.css';
 
 function fmt(v) {
@@ -17,6 +19,7 @@ function fmtScore(v) {
 }
 
 export default function EmployeePage({ onLogout }) {
+  const navigate = useNavigate();
   const [year, setYear] = useState(new Date().getFullYear());
   const [years, setYears] = useState([]);
   const [yearlyRows, setYearlyRows] = useState([]);
@@ -24,6 +27,13 @@ export default function EmployeePage({ onLogout }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [employeeName, setEmployeeName] = useState('');
+  const [employeeId, setEmployeeId] = useState('');
+  const [showPwdModal, setShowPwdModal] = useState(false);
+  const [pwdData, setPwdData] = useState({ current: '', new: '', confirm: '' });
+  const [pwdBusy, setPwdBusy] = useState(false);
+  const [pwdMsg, setPwdMsg] = useState(null);
+  const [pwdError, setPwdError] = useState(null);
+  const [showPwd, setShowPwd] = useState({ current: false, new: false, confirm: false });
 
   const sortedYears = useMemo(() => [...years].sort((a, b) => b - a), [years]);
 
@@ -31,8 +41,10 @@ export default function EmployeePage({ onLogout }) {
     try {
       const res = await api.get('/api/auth/me');
       setEmployeeName(res.data?.user?.employeeName || '');
+      setEmployeeId(res.data?.user?.employeeId || '');
     } catch {
       setEmployeeName('');
+      setEmployeeId('');
     }
   }
 
@@ -112,83 +124,176 @@ export default function EmployeePage({ onLogout }) {
     }
   }
 
+  async function handlePasswordChange(e) {
+    e.preventDefault();
+    setPwdError(null);
+    setPwdMsg(null);
+    
+    if (pwdData.new !== pwdData.confirm) {
+      setPwdError('New passwords do not match');
+      return;
+    }
+    if (pwdData.new.length < 6) {
+      setPwdError('Password must be at least 6 characters');
+      return;
+    }
+
+    setPwdBusy(true);
+    try {
+      await api.post('/api/auth/change-password', {
+        currentPassword: pwdData.current,
+        newPassword: pwdData.new
+      });
+      setPwdMsg('Password updated successfully! Redirecting...');
+      setPwdData({ current: '', new: '', confirm: '' });
+      setTimeout(() => {
+        setShowPwdModal(false);
+        navigate('/');
+      }, 2000);
+    } catch (err) {
+      setPwdError(err.response?.data?.message || 'Failed to change password');
+    } finally {
+      setPwdBusy(false);
+    }
+  }
+
   const yearly = yearlyRows.length > 0 ? yearlyRows[0] : null;
 
-  const seasonTable = (label, key) => {
-    const rows = seasonRows[key] || [];
-    return (
-      <div className={`card employee-season-card employee-season-card-${key}`}>
-        <div className={`employee-season-header employee-season-header-${key}`}>
-          <h3>{label}</h3>
-        </div>
-        <table className="employee-season-table">
-          <thead>
-            <tr>
-              <th>Employee</th>
-              <th className="table-number">Sales Return Inc</th>
-              <th className="table-number">Sales Growth Inc</th>
-              <th className="table-number">NRV Inc</th>
-              <th className="table-number">Payment Inc</th>
-              <th className={`table-number employee-season-bg-${key}`}>Season Inc</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.length === 0 ? (
-              <tr><td colSpan={6} className="employee-empty-state">
-                <div className="employee-empty-icon-small">📊</div>
-                {loading ? 'Loading...' : 'No season data available'}
-              </td></tr>
-            ) : rows.map((r) => (
-              <tr key={r.employeeName}>
-                <td className="employee-season-name-cell">{r.employeeName}</td>
-                <td className="table-number">{fmt(r.salesReturnInc)}%</td>
-                <td className="table-number">{fmt(r.salesGrowthInc)}%</td>
-                <td className="table-number">{fmt(r.nrvInc)}%</td>
-                <td className="table-number">{fmt(r.paymentCollectionInc)}%</td>
-                <td className={`table-number employee-season-inc-${key}`}>
-                  {fmt(r.seasonInc)}%
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    );
-  };
 
   return (
-    <div className="employee-page-container">
-      <div className="employee-page-content">
-        
-        {/* Header Card */}
-        <div className="card employee-header-card">
-          <div className="employee-header-content">
-            <div className="employee-header-left">
-              <div className="employee-avatar">
-                {(employeeName || 'E').charAt(0).toUpperCase()}
+    <div className="fade-in">
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '2rem' }}>
+        <div>
+          <h2 style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <span>My Performance</span>
+            {employeeId && (
+              <span style={{ fontSize: '0.85rem', background: 'var(--primary-soft)', color: 'var(--primary)', padding: '0.25rem 0.6rem', borderRadius: '8px', fontWeight: 700 }}>
+                {employeeId}
+              </span>
+            )}
+          </h2>
+          <p style={{ color: 'var(--text-light)', fontSize: '0.95rem', marginTop: '0.25rem', fontWeight: 500 }}>
+            Welcome, <span style={{ color: 'var(--text)', fontWeight: 700 }}>{employeeName || 'Employee'}</span> 👋
+          </p>
+        </div>
+        <div style={{ display: 'flex', gap: '1rem', alignItems: 'center' }}>
+          <button 
+            onClick={() => {
+              setPwdMsg(null);
+              setPwdError(null);
+              setPwdData({ current: '', new: '', confirm: '' });
+              setShowPwdModal(true);
+            }}
+            className="btn btn-secondary"
+            style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontWeight: 600 }}
+          >
+            <span>🔒</span> Change Password
+          </button>
+          <select 
+            value={year} 
+            onChange={(e) => setYear(Number(e.target.value))} 
+            disabled={loading || sortedYears.length === 0}
+            className="select input-sm"
+            style={{ width: '120px', fontWeight: 600 }}
+          >
+            {sortedYears.map((y) => (
+              <option key={y} value={y}>{y}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Change Password Modal */}
+      {showPwdModal && (
+        <div style={{
+          position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+          background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center',
+          zIndex: 1000, backdropFilter: 'blur(4px)'
+        }} onClick={() => !pwdBusy && setShowPwdModal(false)}>
+          <div className="card" style={{ width: '400px', maxWidth: '90%', padding: '2rem' }} onClick={e => e.stopPropagation()}>
+            <h3 style={{ margin: '0 0 1.5rem 0', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+              <span style={{ fontSize: '1.5rem' }}>🔐</span> Change Password
+            </h3>
+            
+            {pwdMsg && <div className="alert alert-success" style={{ marginBottom: '1rem', padding: '0.75rem' }}>{pwdMsg}</div>}
+            {pwdError && <div className="alert alert-error" style={{ marginBottom: '1rem', padding: '0.75rem' }}>{pwdError}</div>}
+
+            <form onSubmit={handlePasswordChange}>
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>Current Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type={showPwd.current ? "text" : "password"} className="input" required
+                    value={pwdData.current}
+                    onChange={e => setPwdData(p => ({ ...p, current: e.target.value }))}
+                    placeholder="••••••••"
+                    disabled={pwdBusy}
+                    style={{ paddingRight: '2.5rem' }}
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPwd(p => ({ ...p, current: !p.current }))}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: 'var(--text-light)', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showPwd.current ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
-              <div className="employee-name-section">
-                <h1>{employeeName || 'Employee'}</h1>
-                <p>📊 Your Performance Dashboard</p>
+
+              <div style={{ marginBottom: '1.25rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>New Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type={showPwd.new ? "text" : "password"} className="input" required
+                    value={pwdData.new}
+                    onChange={e => setPwdData(p => ({ ...p, new: e.target.value }))}
+                    placeholder="Min 6 characters"
+                    disabled={pwdBusy}
+                    style={{ paddingRight: '2.5rem' }}
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPwd(p => ({ ...p, new: !p.new }))}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: 'var(--text-light)', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showPwd.new ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
               </div>
-            </div>
-            <div className="employee-header-controls">
-              <select 
-                value={year} 
-                onChange={(e) => setYear(Number(e.target.value))} 
-                disabled={loading || sortedYears.length === 0}
-                className="employee-year-select"
-              >
-                {sortedYears.map((y) => (
-                  <option key={y} value={y}>{y}</option>
-                ))}
-              </select>
-              <button className="btn employee-logout-btn" onClick={handleLogout}>
-                🚪 Logout
-              </button>
-            </div>
+
+              <div style={{ marginBottom: '2rem' }}>
+                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem' }}>Confirm New Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input 
+                    type={showPwd.confirm ? "text" : "password"} className="input" required
+                    value={pwdData.confirm}
+                    onChange={e => setPwdData(p => ({ ...p, confirm: e.target.value }))}
+                    placeholder="Re-type new password"
+                    disabled={pwdBusy}
+                    style={{ paddingRight: '2.5rem' }}
+                  />
+                  <button 
+                    type="button" 
+                    onClick={() => setShowPwd(p => ({ ...p, confirm: !p.confirm }))}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: 'var(--text-light)', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showPwd.confirm ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '0.75rem' }}>
+                <button type="button" className="btn btn-ghost" style={{ flex: 1 }} onClick={() => setShowPwdModal(false)} disabled={pwdBusy}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={pwdBusy}>
+                  {pwdBusy ? 'Updating...' : 'Update Password'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
+      )}
 
         {error && (
           <div className="alert alert-error">
@@ -198,90 +303,119 @@ export default function EmployeePage({ onLogout }) {
         )}
 
         {/* Summary Cards */}
-        <div className="employee-summary-grid">
-          <div className="card employee-summary-card summary-card-gradient-1">
-            <div className="employee-summary-card-icon">📈</div>
-            <div className="employee-summary-card-label">Final Increment</div>
-            <div className="employee-summary-card-value">{fmt(yearly?.finalIncrementPercent)}%</div>
+        <div className="metrics-grid">
+          <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ background: 'var(--primary-soft)', color: 'var(--primary)', padding: '1rem', borderRadius: '16px', fontSize: '1.5rem' }}>📈</div>
+            <div>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-light)', fontWeight: 600 }}>Final Increment</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text)' }}>{fmt(yearly?.finalIncrementPercent)}%</div>
+            </div>
           </div>
-          <div className="card employee-summary-card summary-card-gradient-2">
-            <div className="employee-summary-card-icon">🎯</div>
-            <div className="employee-summary-card-label">Composite Score</div>
-            <div className="employee-summary-card-value">{fmt(yearly?.compositeScore)}%</div>
+          <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ background: 'var(--primary-soft)', color: 'var(--primary)', padding: '1rem', borderRadius: '16px', fontSize: '1.5rem' }}>🎯</div>
+            <div>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-light)', fontWeight: 600 }}>Composite Score</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text)' }}>{fmt(yearly?.compositeScore)}%</div>
+            </div>
           </div>
-          <div className="card employee-summary-card summary-card-gradient-3">
-            <div className="employee-summary-card-icon">💰</div>
-            <div className="employee-summary-card-label">Base Salary</div>
-            <div className="employee-summary-card-value">₹{fmt(yearly?.baseSalary)}</div>
+          <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ background: 'var(--primary-soft)', color: 'var(--primary)', padding: '1rem', borderRadius: '16px', fontSize: '1.5rem' }}>💰</div>
+            <div>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-light)', fontWeight: 600 }}>Base Salary</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text)' }}>₹{fmt(yearly?.baseSalary)}</div>
+            </div>
           </div>
-          <div className="card employee-summary-card summary-card-gradient-4">
-            <div className="employee-summary-card-icon">💸</div>
-            <div className="employee-summary-card-label">Increment Amount</div>
-            <div className="employee-summary-card-value">₹{fmt(yearly?.incrementAmount)}</div>
-          </div>
-          <div className="card employee-summary-card summary-card-gradient-5">
-            <div className="employee-summary-card-icon">💵</div>
-            <div className="employee-summary-card-label">Total Salary</div>
-            <div className="employee-summary-card-value">₹{fmt(yearly?.totalSalary)}</div>
+          <div className="card" style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+            <div style={{ background: 'var(--primary-soft)', color: 'var(--primary)', padding: '1rem', borderRadius: '16px', fontSize: '1.5rem' }}>💸</div>
+            <div>
+              <div style={{ fontSize: '0.875rem', color: 'var(--text-light)', fontWeight: 600 }}>Increment Amount</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--primary)' }}>+₹{fmt(yearly?.incrementAmount)}</div>
+            </div>
           </div>
         </div>
 
         {/* Yearly Breakdown Table */}
-        <div className="card employee-yearly-table-card">
-          <div className="employee-table-header">
-            <h3>
-              <span className="employee-table-header-icon">📋</span>
-              <span>Yearly Performance Breakdown</span>
-            </h3>
+        <div className="card" style={{ marginBottom: '2rem' }}>
+          <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ background: 'var(--primary-soft)', color: 'var(--primary)', padding: '0.5rem', borderRadius: '10px' }}>📋</div>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Yearly Performance</h3>
           </div>
-          <table className="employee-yearly-table">
-            <thead>
-              <tr>
-                <th>Employee</th>
-                <th className="table-number">Sales Return Inc</th>
-                <th className="table-number">Sales Growth Inc</th>
-                <th className="table-number">NRV Inc</th>
-                <th className="table-number">Payment Inc</th>
-                <th className="table-number">Activity Inc</th>
-                <th className="table-number employee-table-highlight-bg-green">Final Inc %</th>
-                <th className="table-number">Composite Score</th>
-                <th className="table-number">Base Salary</th>
-                <th className="table-number">Increment</th>
-                <th className="table-number employee-table-highlight-bg-blue">Total Salary</th>
-              </tr>
-            </thead>
-            <tbody>
-              {yearlyRows.length === 0 ? (
-                <tr><td colSpan={11} className="employee-empty-state">
-                  <div className="employee-empty-icon">📊</div>
-                  {loading ? 'Loading your data...' : 'No data available'}
-                </td></tr>
-              ) : yearlyRows.map((r) => (
-                <tr key={r.employeeName}>
-                  <td className="employee-table-name-cell">{r.employeeName}</td>
-                  <td className="table-number">{fmt(r.yearSalesReturnInc)}</td>
-                  <td className="table-number">{fmt(r.yearSalesGrowthInc)}</td>
-                  <td className="table-number">{fmt(r.yearNrvInc)}</td>
-                  <td className="table-number">{fmt(r.yearPaymentCollectionInc)}</td>
-                  <td className="table-number">{fmt(r.activityInc)}</td>
-                  <td className="table-number employee-table-highlight-green">{fmt(r.finalIncrementPercent)}%</td>
-                  <td className="table-number employee-table-composite">{fmtScore(r.compositeScore)}</td>
-                  <td className="table-number">₹{fmt(r.baseSalary)}</td>
-                  <td className="table-number">₹{fmt(r.incrementAmount)}</td>
-                  <td className="table-number employee-table-highlight-blue">₹{fmt(r.totalSalary)}</td>
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Sales Return Inc</th>
+                  <th>Sales Growth Inc</th>
+                  <th>NRV Inc</th>
+                  <th>Payment Inc</th>
+                  <th>Activity Inc</th>
+                  <th style={{ color: 'var(--primary)' }}>Final Inc %</th>
+                  <th style={{ color: 'var(--primary)' }}>Total Salary</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {yearlyRows.length === 0 ? (
+                  <tr><td colSpan={7} style={{ textAlign: 'center', color: 'var(--text-light)' }}>
+                    {loading ? 'Loading your data...' : 'No data available'}
+                  </td></tr>
+                ) : yearlyRows.map((r) => (
+                  <tr key={r.employeeName}>
+                    <td>{fmt(r.yearSalesReturnInc)}</td>
+                    <td>{fmt(r.yearSalesGrowthInc)}</td>
+                    <td>{fmt(r.yearNrvInc)}</td>
+                    <td>{fmt(r.yearPaymentCollectionInc)}</td>
+                    <td>{fmt(r.activityInc)}</td>
+                    <td style={{ fontWeight: 700, color: 'var(--primary)' }}>{fmt(r.finalIncrementPercent)}%</td>
+                    <td style={{ fontWeight: 700, color: 'var(--primary)' }}>₹{fmt(r.totalSalary)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Season Data */}
-        <div className="employee-season-grid">
-          {seasonTable('🌱 Shiyadu Season', 'shiyadu')}
-          {seasonTable('🌾 Unadu Season', 'unadu')}
-          {seasonTable('🍂 Chomasu Season', 'chomasu')}
+        {/* Season Data Consolidated Table */}
+        <div className="card" style={{ marginBottom: '2rem' }}>
+          <div style={{ marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <div style={{ background: 'var(--primary-soft)', color: 'var(--primary)', padding: '0.5rem', borderRadius: '10px' }}>🗓️</div>
+            <h3 style={{ margin: 0, fontSize: '1.25rem', fontWeight: 700 }}>Seasonal Breakdown</h3>
+          </div>
+          <div className="table-container">
+            <table>
+              <thead>
+                <tr>
+                  <th>Season</th>
+                  <th>Sales Return Inc</th>
+                  <th>Sales Growth Inc</th>
+                  <th>NRV Inc</th>
+                  <th>Payment Inc</th>
+                  <th style={{ color: 'var(--primary)' }}>Season Inc</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[
+                  { label: '🌱 Shiyadu', key: 'shiyadu' },
+                  { label: '🌾 Unadu', key: 'unadu' },
+                  { label: '🍂 Chomasu', key: 'chomasu' }
+                ].map((s) => {
+                  const row = (seasonRows[s.key] || [])[0];
+                  return (
+                    <tr key={s.key}>
+                      <td style={{ fontWeight: 600 }}>{s.label}</td>
+                      <td>{row ? `${fmt(row.salesReturnInc)}%` : '—'}</td>
+                      <td>{row ? `${fmt(row.salesGrowthInc)}%` : '—'}</td>
+                      <td>{row ? `${fmt(row.nrvInc)}%` : '—'}</td>
+                      <td>{row ? `${fmt(row.paymentCollectionInc)}%` : '—'}</td>
+                      <td style={{ fontWeight: 700, color: 'var(--primary)' }}>
+                        {row ? `${fmt(row.seasonInc)}%` : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
-      </div>
     </div>
   );
 }

@@ -2,8 +2,8 @@
 
 .employee-page-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  padding: 2rem 1rem;
+  background: var(--bg);
+  padding: 1.5rem 1rem;
 }
 
 .employee-page-content {
@@ -16,10 +16,23 @@
 
 /* Header Card */
 .employee-header-card {
-  padding: 1.5rem;
-  background: linear-gradient(135deg, var(--primary), var(--primary-dark));
-  color: white;
-  box-shadow: var(--shadow-lg);
+  padding: 1.25rem;
+  background: var(--surface);
+  color: var(--text);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  position: relative;
+}
+
+.employee-header-card::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--primary);
+  border-radius: 16px 0 0 16px;
 }
 
 .employee-header-content {
@@ -40,13 +53,14 @@
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--primary-soft);
   display: flex;
   align-items: center;
   justify-content: center;
   font-size: 2rem;
   font-weight: bold;
-  border: 3px solid rgba(255, 255, 255, 0.3);
+  border: 1px solid rgba(22, 163, 74, 0.25);
+  color: var(--primary-dark);
 }
 
 .employee-name-section h1 {
@@ -57,8 +71,9 @@
 
 .employee-name-section p {
   margin: 0.25rem 0 0 0;
-  opacity: 0.9;
+  opacity: 1;
   font-size: 0.95rem;
+  color: var(--text-light);
 }
 
 .employee-header-controls {
@@ -71,15 +86,19 @@
 .employee-year-select {
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid var(--border);
+  background: var(--surface);
   font-weight: 600;
 }
 
 .employee-logout-btn {
-  background: rgba(255, 255, 255, 0.2);
-  color: white;
-  border: 2px solid rgba(255, 255, 255, 0.3);
+  background: var(--primary-soft);
+  color: var(--primary-dark);
+  border: 1px solid rgba(22, 163, 74, 0.25);
+}
+
+.employee-logout-btn:hover:not(:disabled) {
+  background: rgba(22, 163, 74, 0.18);
 }
 
 /* Summary Cards */
@@ -111,30 +130,32 @@
 }
 
 .employee-summary-card {
-  padding: 1.5rem;
-  color: white;
+  padding: 1.25rem;
+  color: var(--text);
   border-radius: 0.75rem;
-  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: box-shadow 0.2s ease;
 }
 
 .employee-summary-card:hover {
-  transform: translateY(-4px);
   box-shadow: var(--shadow-xl);
 }
 
 .employee-summary-card-icon {
   font-size: 2rem;
-  opacity: 0.9;
+  opacity: 1;
+  color: var(--primary);
 }
 
 .employee-summary-card-label {
   font-size: 0.875rem;
-  opacity: 0.9;
+  opacity: 1;
   font-weight: 500;
+  color: var(--text-light);
 }
 
 .employee-summary-card-value {
@@ -144,23 +165,23 @@
 }
 
 .summary-card-gradient-1 {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--surface);
 }
 
 .summary-card-gradient-2 {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: var(--surface);
 }
 
 .summary-card-gradient-3 {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  background: var(--surface);
 }
 
 .summary-card-gradient-4 {
-  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  background: var(--surface);
 }
 
 .summary-card-gradient-5 {
-  background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+  background: var(--surface);
 }
 
 /* Yearly Breakdown Table */
@@ -170,7 +191,7 @@
 }
 
 .employee-table-header {
-  padding: 1.25rem 1.25rem 0.75rem;
+  padding: 0.875rem 1rem 0.5rem;
   border-bottom: 2px solid var(--border);
 }
 
@@ -190,11 +211,11 @@
 }
 
 .employee-yearly-table th {
-  padding: 1rem;
+  padding: 0.6rem 0.75rem;
 }
 
 .employee-yearly-table td {
-  padding: 1rem;
+  padding: 0.6rem 0.75rem;
 }
 
 .employee-yearly-table tbody tr {
@@ -203,12 +224,12 @@
 
 .employee-table-name-cell {
   font-weight: 600;
-  padding: 1rem;
+  padding: 0.6rem 0.75rem;
 }
 
 .employee-table-highlight-green {
   font-weight: 700;
-  color: var(--success);
+  color: var(--primary);
   font-size: 1.05rem;
 }
 
@@ -219,11 +240,11 @@
 }
 
 .employee-table-highlight-bg-green {
-  background: rgba(16, 185, 129, 0.1);
+  background: var(--primary-softer);
 }
 
 .employee-table-highlight-bg-blue {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--primary-softer);
 }
 
 .employee-table-composite {
@@ -279,30 +300,30 @@
 }
 
 .employee-season-header-shiyadu {
-  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-  color: white;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .employee-season-header-shiyadu h3 {
-  color: white;
+  color: var(--text);
 }
 
 .employee-season-header-unadu {
-  background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
-  color: white;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .employee-season-header-unadu h3 {
-  color: white;
+  color: var(--text);
 }
 
 .employee-season-header-chomasu {
-  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
-  color: white;
+  background: var(--bg);
+  color: var(--text);
 }
 
 .employee-season-header-chomasu h3 {
-  color: white;
+  color: var(--text);
 }
 
 .employee-season-table thead tr {
@@ -328,19 +349,19 @@
 
 .employee-season-inc-shiyadu {
   font-weight: 700;
-  color: #10b981;
+  color: var(--primary);
   font-size: 1.05rem;
 }
 
 .employee-season-inc-unadu {
   font-weight: 700;
-  color: #f59e0b;
+  color: var(--primary);
   font-size: 1.05rem;
 }
 
 .employee-season-inc-chomasu {
   font-weight: 700;
-  color: #8b5cf6;
+  color: var(--primary);
   font-size: 1.05rem;
 }
 
@@ -393,15 +414,15 @@
 }
 
 .employee-season-bg-shiyadu {
-  background: rgba(16, 185, 129, 0.08);
+  background: var(--primary-softer);
 }
 
 .employee-season-bg-unadu {
-  background: rgba(245, 158, 11, 0.08);
+  background: var(--primary-softer);
 }
 
 .employee-season-bg-chomasu {
-  background: rgba(139, 92, 246, 0.08);
+  background: var(--primary-softer);
 }
 
 /* Empty State */
