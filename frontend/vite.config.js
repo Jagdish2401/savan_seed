@@ -1,5 +1,8 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+
+const emptyShim = fileURLToPath(new URL('./src/shims/empty.js', import.meta.url));
 
 export default defineConfig({
   plugins: [react()],
@@ -55,9 +58,9 @@ export default defineConfig({
   resolve: {
     alias: {
       './dist/cpexcel.js': '',
-      path: './src/shims/empty.js',
-      fs: './src/shims/empty.js',
-      stream: './src/shims/empty.js',
+      path: emptyShim,
+      fs: emptyShim,
+      stream: emptyShim,
     },
   },
   optimizeDeps: {
