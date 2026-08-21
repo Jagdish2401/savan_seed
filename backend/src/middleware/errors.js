@@ -29,5 +29,5 @@ export function errorHandler(err, req, res, _next) {
   // Default
   // eslint-disable-next-line no-console
   console.error('Unhandled error:', err);
-  return res.status(500).json({ success: false, message: 'Server error' });
+  return res.status(500).json({ success: false, message: err?.message || 'Server error' });
 }

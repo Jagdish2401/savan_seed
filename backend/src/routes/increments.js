@@ -330,18 +330,31 @@ async function getOrCreateEmployeeByName(fullName) {
     }
   }
 
-  // 3. Try finding by firstName (Fuzzy match)
-  // Since we migrated names to firstName, we search there first
-  const existing = await Employee.findOne({ 
+  // 3. Try finding by full display name (firstName + lastName + surname)
+  // This handles cases like "Ashokbhai a a" being stored as firstName="Ashokbhai", lastName="a", surname="a"
+  const allEmployees = await Employee.find({}).lean();
+  const searchNameLower = searchName.toLowerCase();
+  
+  for (const emp of allEmployees) {
+    const displayName = `${emp.firstName || ''} ${emp.lastName || ''} ${emp.surname || ''}`.trim().toLowerCase();
+    if (displayName === searchNameLower) {
+      await ensureEmployeeUserForEmployee(emp);
+      return emp;
+    }
+  }
+
+  // 4. Try finding by firstName only (older fallback)
+  // Since we migrated names to firstName, we search there as fallback
+  const byFirstName = await Employee.findOne({ 
     firstName: new RegExp(`^${escapeRegExp(searchName)}$`, 'i') 
   });
   
-  if (existing) {
-    await ensureEmployeeUserForEmployee(existing);
-    return existing;
+  if (byFirstName) {
+    await ensureEmployeeUserForEmployee(byFirstName);
+    return byFirstName;
   }
 
-  // 4. Create new if not found (Fallback)
+  // 5. Create new if not found (Fallback)
   if (!empId) {
     const allEmps = await Employee.find({}, { empId: 1 }).lean();
     let maxNum = 0;

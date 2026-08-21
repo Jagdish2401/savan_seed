@@ -7,7 +7,7 @@ dotenv.config();
 
 async function checkDatabase() {
   try {
-    await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/savan_seed');
+    await mongoose.connect(process.env.MONGO_URI || 'mongodb://localhost:27017/savan_seed');
     console.log('Connected to MongoDB');
 
     const employees = await Employee.find().lean();

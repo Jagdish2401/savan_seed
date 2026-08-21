@@ -13,7 +13,7 @@ const router = express.Router();
 
 router.get('/', requireAuth, requireHr, async (req, res) => {
   try {
-    const employees = await Employee.find().sort({ firstName: 1 }).lean();
+    const employees = await Employee.find().sort({ empId: 1 }).lean();
     return res.json({ success: true, employees });
   } catch (e) {
     return res.status(500).json({ success: false, message: e.message || 'Failed to fetch employees' });
@@ -142,7 +142,7 @@ router.patch('/profile/me', requireAuth, async (req, res) => {
     }
 
     const employee = empUser.employee;
-    const { firstName, lastName, surname, phone, email } = req.body;
+    const { firstName, lastName, surname, phone, email, password } = req.body;
 
     if (firstName) employee.firstName = firstName.trim();
     if (lastName !== undefined) employee.lastName = String(lastName).trim();
@@ -151,11 +151,38 @@ router.patch('/profile/me', requireAuth, async (req, res) => {
     
     if (email) {
       employee.email = email.trim().toLowerCase();
-      await EmployeeUser.findOneAndUpdate(
-        { employee: employee._id },
-        { email: employee.email },
-        { upsert: true }
-      );
+      const existingUser = await EmployeeUser.findOne({ employee: employee._id });
+      if (existingUser) {
+        existingUser.email = employee.email;
+        await existingUser.save();
+      } else {
+        await EmployeeUser.create({
+          employee: employee._id,
+          email: employee.email,
+          passwordHash: await EmployeeUser.hashPassword('savan@123'),
+        });
+      }
+    }
+
+    const resetPassword = typeof password === 'string' ? password.trim() : '';
+    if (resetPassword) {
+      if (resetPassword.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+      }
+
+      const passwordHash = await EmployeeUser.hashPassword(resetPassword);
+      const existingUser = await EmployeeUser.findOne({ employee: employee._id });
+      if (existingUser) {
+        existingUser.passwordHash = passwordHash;
+        if (email) existingUser.email = employee.email;
+        await existingUser.save();
+      } else {
+        await EmployeeUser.create({
+          employee: employee._id,
+          email: employee.email || `${employee.empId.toLowerCase()}@gmail.com`,
+          passwordHash,
+        });
+      }
     }
 
     await employee.save();
@@ -198,7 +225,7 @@ router.patch('/:id', requireAuth, async (req, res) => {
       return res.status(403).json({ success: false, message: 'Forbidden: You can only edit your own profile' });
     }
 
-    const { firstName, lastName, surname, phone, email } = req.body;
+    const { firstName, lastName, surname, phone, email, password } = req.body;
 
     const oldLabel = `${employee.empId} - ${employee.firstName}`.substring(0, 31);
 
@@ -223,6 +250,27 @@ router.patch('/:id', requireAuth, async (req, res) => {
         updateData,
         { upsert: true, new: true }
       );
+    }
+
+    const resetPassword = typeof password === 'string' ? password.trim() : '';
+    if (resetPassword) {
+      if (resetPassword.length < 6) {
+        return res.status(400).json({ success: false, message: 'Password must be at least 6 characters' });
+      }
+
+      const passwordHash = await EmployeeUser.hashPassword(resetPassword);
+      const existingUser = await EmployeeUser.findOne({ employee: employee._id });
+      if (existingUser) {
+        existingUser.passwordHash = passwordHash;
+        if (email) existingUser.email = employee.email;
+        await existingUser.save();
+      } else {
+        await EmployeeUser.create({
+          employee: employee._id,
+          email: employee.email || `${employee.empId.toLowerCase()}@gmail.com`,
+          passwordHash,
+        });
+      }
     }
 
     await employee.save();

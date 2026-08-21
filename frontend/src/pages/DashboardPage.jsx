@@ -74,6 +74,7 @@ export default function DashboardPage({ activeTab }) {
   const [newEmployee, setNewEmployee] = useState({ firstName: '', lastName: '', surname: '', phone: '', email: '' });
   const [editingEmployee, setEditingEmployee] = useState(null);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showEditPassword, setShowEditPassword] = useState(false);
   const [newProduct, setNewProduct] = useState({ productName: '', minPrice: '' });
   const [templateProducts, setTemplateProducts] = useState([]);
 
@@ -838,6 +839,7 @@ export default function DashboardPage({ activeTab }) {
       setMessage('Employee profile updated successfully');
       setShowEditModal(false);
       setEditingEmployee(null);
+      setShowEditPassword(false);
       await loadEmployees();
       await loadYearly();
     } catch (err) {
@@ -1391,6 +1393,8 @@ export default function DashboardPage({ activeTab }) {
               setShowEditModal={setShowEditModal}
               showEditModal={showEditModal}
               editingEmployee={editingEmployee}
+              showEditPassword={showEditPassword}
+              setShowEditPassword={setShowEditPassword}
               updateEmployee={updateEmployee}
             />
           </Suspense>

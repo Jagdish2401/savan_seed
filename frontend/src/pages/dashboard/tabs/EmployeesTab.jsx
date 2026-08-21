@@ -1,5 +1,7 @@
 import {
   Edit,
+  Eye,
+  EyeOff,
   Lock,
   Mail,
   Phone,
@@ -20,6 +22,8 @@ export default function EmployeesTab({
   setShowEditModal,
   showEditModal,
   editingEmployee,
+  showEditPassword,
+  setShowEditPassword,
   updateEmployee,
 }) {
   return (
@@ -225,7 +229,8 @@ export default function EmployeesTab({
                     <td style={{ textAlign: 'center' }}>
                       <button
                         onClick={() => {
-                          setEditingEmployee({ ...e });
+                            setEditingEmployee({ ...e, password: '' });
+                            setShowEditPassword(false);
                           setShowEditModal(true);
                         }}
                         className="btn btn-secondary"
@@ -266,6 +271,8 @@ export default function EmployeesTab({
             style={{
               width: '500px',
               maxWidth: '95%',
+              maxHeight: '90vh',
+              overflowY: 'auto',
               padding: '2rem',
               borderRadius: '24px',
               boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)'
@@ -279,9 +286,9 @@ export default function EmployeesTab({
               </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
               <div>
-                <label style={{ display: 'flex', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)', alignItems: 'center', gap: '0.4rem' }}>
+                <label className="label" style={{ display: 'flex', fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--text-light)', alignItems: 'center', gap: '0.4rem' }}>
                   <ShieldCheck size={14} /> Official Employee ID
                 </label>
                 <input
@@ -291,69 +298,95 @@ export default function EmployeesTab({
                   style={{
                     borderRadius: '12px',
                     fontWeight: '700',
-                    background: 'var(--bg)',
+                    background: 'var(--primary-softer)',
                     border: '1.5px solid var(--border)',
-                    color: 'var(--text-light)',
-                    cursor: 'not-allowed'
+                    color: 'var(--text)',
+                    cursor: 'not-allowed',
+                    height: '44px'
                   }}
                 />
               </div>
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1.25rem' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '1rem' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>First Name</label>
+                  <label className="label" style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--text-light)' }}>First Name</label>
                   <input
                     className="input"
                     value={editingEmployee.firstName}
                     onChange={(e) => setEditingEmployee(p => ({ ...p, firstName: e.target.value }))}
-                    style={{ borderRadius: '12px' }}
+                    style={{ borderRadius: '12px', height: '44px' }}
                   />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>Last Name</label>
+                    <label className="label" style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--text-light)' }}>Last Name</label>
                     <input
                       className="input"
                       value={editingEmployee.lastName || ''}
                       onChange={(e) => setEditingEmployee(p => ({ ...p, lastName: e.target.value }))}
-                      style={{ borderRadius: '12px' }}
+                      style={{ borderRadius: '12px', height: '44px' }}
                     />
                   </div>
                   <div>
-                    <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>Surname</label>
+                    <label className="label" style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--text-light)' }}>Surname</label>
                     <input
                       className="input"
                       value={editingEmployee.surname || ''}
                       onChange={(e) => setEditingEmployee(p => ({ ...p, surname: e.target.value }))}
-                      style={{ borderRadius: '12px' }}
+                      style={{ borderRadius: '12px', height: '44px' }}
                     />
                   </div>
                 </div>
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>Phone Number</label>
+                <label className="label" style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--text-light)' }}>Phone Number</label>
                 <input
                   className="input"
                   value={editingEmployee.phone || ''}
                   onChange={(e) => setEditingEmployee(p => ({ ...p, phone: e.target.value.replace(/\D/g, '').slice(0, 10) }))}
-                  style={{ borderRadius: '12px' }}
+                  style={{ borderRadius: '12px', height: '44px' }}
                 />
               </div>
 
               <div>
-                <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: 600, marginBottom: '0.5rem', color: 'var(--text-light)' }}>Email Address</label>
+                <label className="label" style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--text-light)' }}>Email Address</label>
                 <input
                   className="input"
                   type="email"
                   value={editingEmployee.email || ''}
                   onChange={(e) => setEditingEmployee(p => ({ ...p, email: e.target.value }))}
-                  style={{ borderRadius: '12px' }}
+                  style={{ borderRadius: '12px', height: '44px' }}
                 />
+              </div>
+
+              <div style={{ marginTop: '0.5rem', paddingTop: '1rem', borderTop: '1px dashed var(--border)' }}>
+                <label className="label" style={{ fontSize: '0.85rem', marginBottom: '0.4rem', color: 'var(--text-light)' }}>Reset Password</label>
+                <div style={{ position: 'relative' }}>
+                  <input
+                    className="input"
+                    type={showEditPassword ? 'text' : 'password'}
+                    value={editingEmployee.password || ''}
+                    onChange={(e) => setEditingEmployee(p => ({ ...p, password: e.target.value }))}
+                    placeholder="Enter new password"
+                    style={{ borderRadius: '12px', paddingRight: '2.75rem', height: '44px' }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowEditPassword((p) => !p)}
+                    aria-label={showEditPassword ? 'Hide password' : 'Show password'}
+                    style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', border: 'none', background: 'none', color: 'var(--text-light)', cursor: 'pointer', display: 'flex' }}
+                  >
+                    {showEditPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                  </button>
+                </div>
+                <p style={{ fontSize: '0.7rem', color: 'var(--text-light)', marginTop: '0.4rem', fontStyle: 'italic' }}>
+                  Leave blank to keep current password.
+                </p>
               </div>
             </div>
 
-            <div style={{ display: 'flex', gap: '1rem', marginTop: '2.5rem' }}>
+            <div style={{ display: 'flex', gap: '1rem', marginTop: '2rem' }}>
               <button
                 onClick={() => {
                   setShowEditModal(false);
@@ -373,6 +406,7 @@ export default function EmployeesTab({
                 {busy ? <div className="spinner spinner-white" /> : 'Save Changes'}
               </button>
             </div>
+
           </div>
         </div>
       )}

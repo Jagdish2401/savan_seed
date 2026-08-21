@@ -4,9 +4,9 @@
   "type": "module",
   "main": "src/server.js",
   "scripts": {
-    "dev": "nodemon src/server.js",
-    "start": "node src/server.js",
-    "seed:hr": "node src/scripts/seed-hr.js",
+    "dev": "nodemon --exec \"node --tls-min-v1.0\" src/server.js",
+    "start": "node --tls-min-v1.0 src/server.js",
+    "seed:hr": "node --tls-min-v1.0 src/scripts/seed-hr.js",
     "test": "echo \"No tests yet\""
   },
   "keywords": [],
