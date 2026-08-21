@@ -2,7 +2,7 @@
 **Employee Performance & Increment Automation System**
 
 ---
-**Project Image**
+#**Project Image**
 
 <img width="903" height="403" alt="image" src="https://github.com/user-attachments/assets/015068e6-7950-44f3-8e81-16c32a2a6aad" />
 
