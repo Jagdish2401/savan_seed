@@ -2,11 +2,14 @@
 **Employee Performance & Increment Automation System**
 
 ---
+**Project Image**
+
 <img width="903" height="403" alt="image" src="https://github.com/user-attachments/assets/015068e6-7950-44f3-8e81-16c32a2a6aad" />
 
 <img width="903" height="398" alt="image" src="https://github.com/user-attachments/assets/2d55c122-71fb-4b76-b098-4901ac44ee96" />
 
 <img width="903" height="308" alt="image" src="https://github.com/user-attachments/assets/0ea7585f-0cf1-461b-ba6a-6bfb2bffb118" />
+
 <img width="903" height="411" alt="image" src="https://github.com/user-attachments/assets/eb6498de-d8da-44ea-9a0d-b724984f4fef" />
 
 <img width="969" height="664" alt="image" src="https://github.com/user-attachments/assets/00282ef0-1c44-4de3-9c99-f5e3e1013110" />
