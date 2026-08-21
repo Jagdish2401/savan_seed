@@ -260,5 +260,5 @@ Savan Seed (Payrise) successfully transforms a manual, error-prone payroll proce
 - **Advanced Exporting**: PDF generation for official increment letters and salary slips.
 
 ---
-**Created by Antigravity AI**
-*Generated for Jagdish2401/savan_seed*
+
+**Created by  Jagdish2401/savan_seed**
