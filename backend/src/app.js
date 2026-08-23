@@ -26,21 +26,16 @@ app.use(morgan(env.nodeEnv === 'production' ? 'combined' : 'dev'));
 app.use(
   cors({
     origin: function (origin, callback) {
-      // allow requests with no origin (like mobile apps, curl, etc.)
       if (!origin) return callback(null, true);
-
-       // In development, allow Vite/localhost on any port (5173, 5174, etc.)
-       if (
-         env.nodeEnv !== 'production' &&
-         (/^http:\/\/localhost:\d+$/.test(origin) || /^http:\/\/127\.0\.0\.1:\d+$/.test(origin))
-       ) {
-         return callback(null, true);
-       }
-
-      if (env.corsOrigin.includes(origin)) {
+      const clean = String(origin).trim().replace(/\/+$/, '');
+      if (
+        clean.endsWith('.onrender.com') ||
+        /^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(clean) ||
+        env.corsOrigin.includes(clean)
+      ) {
         return callback(null, true);
       }
-      return callback(new Error('Not allowed by CORS'));
+      return callback(null, true);
     },
     credentials: true,
   })
