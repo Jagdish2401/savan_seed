@@ -14,7 +14,7 @@ function parseCommaList(value) {
   if (!value) return [];
   return String(value)
     .split(',')
-    .map((s) => s.trim())
+    .map((s) => s.trim().replace(/\/+$/, ''))
     .filter(Boolean);
 }
 
