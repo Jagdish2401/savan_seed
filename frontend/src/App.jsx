@@ -38,6 +38,7 @@ export default function App() {
     } catch (err) {
       console.error('Logout error:', err);
     } finally {
+      localStorage.removeItem('token');
       setAuthed(false);
       setUser(null);
     }

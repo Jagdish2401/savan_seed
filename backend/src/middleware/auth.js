@@ -3,7 +3,9 @@ import { env } from '../config/env.js';
 
 export function requireAuth(req, res, next) {
   try {
-    const token = req.cookies?.token;
+    const authHeader = req.headers.authorization;
+    const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+    const token = req.cookies?.token || bearerToken;
     if (!token) {
       return res.status(401).json({ success: false, message: 'Not authenticated' });
     }

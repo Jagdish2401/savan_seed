@@ -35,7 +35,7 @@ router.post('/login', async (req, res) => {
         secure: env.nodeEnv === 'production',
         maxAge: 24 * 60 * 60 * 1000,
       });
-      return res.json({ success: true, role: 'hr' });
+      return res.json({ success: true, role: 'hr', token });
     }
 
     // Try Employee next (Search by Email OR empId)
@@ -59,7 +59,7 @@ router.post('/login', async (req, res) => {
         secure: env.nodeEnv === 'production',
         maxAge: 24 * 60 * 60 * 1000,
       });
-      return res.json({ success: true, role: 'employee' });
+      return res.json({ success: true, role: 'employee', token });
     }
 
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
@@ -69,7 +69,9 @@ router.post('/login', async (req, res) => {
 });
 
 router.get('/me', async (req, res) => {
-  const token = req.cookies?.token;
+  const authHeader = req.headers.authorization;
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.split(' ')[1] : null;
+  const token = req.cookies?.token || bearerToken;
   if (!token) {
     return res.json({ success: true, user: null });
   }
