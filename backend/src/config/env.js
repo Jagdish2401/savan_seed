@@ -27,12 +27,13 @@ export const env = {
   corsOrigin: Array.from(
     new Set([
       ...parseCommaList(process.env.CORS_ORIGIN),
+      'https://savan-seed.onrender.com',
       'http://localhost:5173',
       'http://localhost:5174',
       'http://127.0.0.1:5173',
       'http://127.0.0.1:5174',
     ])
   ),
-  hrEmail: process.env.HR_EMAIL || '',
-  hrPassword: process.env.HR_PASSWORD || '',
+  hrEmail: process.env.HR_EMAIL || 'hr@gmail.com',
+  hrPassword: process.env.HR_PASSWORD || 'savan@123',
 };

@@ -11,8 +11,8 @@ export default function App() {
   const [authed, setAuthed] = useState(false);
   const [user, setUser] = useState(null); // { role, employeeId, employeeName }
 
-  async function checkAuth() {
-    setChecking(true);
+  async function checkAuth(showSpinner = true) {
+    if (showSpinner) setChecking(true);
     try {
       const res = await api.get('/api/auth/me');
       const u = res.data?.user || null;
@@ -22,15 +22,21 @@ export default function App() {
       setAuthed(false);
       setUser(null);
     } finally {
-      setChecking(false);
+      if (showSpinner) setChecking(false);
     }
   }
 
   useEffect(() => {
-    checkAuth();
+    checkAuth(true);
   }, []);
 
-  if (checking) return <div style={{ padding: 16, display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg)' }}><div className="spinner spinner-primary"></div></div>;
+  if (checking) {
+    return (
+      <div style={{ padding: 16, display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh', background: 'var(--bg)' }}>
+        <div className="spinner spinner-primary"></div>
+      </div>
+    );
+  }
 
   const handleLogout = async () => {
     try {
@@ -51,31 +57,60 @@ export default function App() {
           path="/login"
           element={
             authed ? (
-              user?.role === 'employee' ? <Navigate to="/employee" replace /> : <Navigate to="/" replace />
+              <Navigate to={user?.role === 'employee' ? '/employee' : '/'} replace />
             ) : (
-              <LoginPage onLoggedIn={async () => { await checkAuth(); }} />
+              <LoginPage onLoggedIn={() => checkAuth(false)} />
             )
           }
         />
-        
-        {/* Protected Dashboard Routes wrapped in Layout */}
-        {authed && user?.role !== 'employee' && (
-          <Route element={<AppLayout user={user} onLogout={handleLogout} />}>
-            <Route path="/" element={<DashboardPage activeTab="dashboard" />} />
-            <Route path="/season/:seasonKey" element={<DashboardPage />} />
-            <Route path="/monthly" element={<DashboardPage activeTab="monthly" />} />
-            <Route path="/yearly" element={<DashboardPage activeTab="yearly" />} />
-            <Route path="/employee" element={<DashboardPage activeTab="employees" />} />
-            <Route path="/template-manager" element={<DashboardPage activeTab="template" />} />
-          </Route>
-        )}
 
-        {/* Protected Employee Route */}
-        {authed && user?.role === 'employee' && (
-          <Route element={<AppLayout user={user} onLogout={handleLogout} />}>
-            <Route path="/employee" element={<EmployeePage />} />
-          </Route>
-        )}
+        {/* Protected Dashboard Routes wrapped in Layout */}
+        <Route
+          element={
+            authed ? (
+              <AppLayout user={user} onLogout={handleLogout} />
+            ) : (
+              <Navigate to="/login" replace />
+            )
+          }
+        >
+          <Route
+            path="/"
+            element={
+              user?.role === 'employee' ? <Navigate to="/employee" replace /> : <DashboardPage activeTab="dashboard" />
+            }
+          />
+          <Route
+            path="/season/:seasonKey"
+            element={
+              user?.role === 'employee' ? <Navigate to="/employee" replace /> : <DashboardPage />
+            }
+          />
+          <Route
+            path="/monthly"
+            element={
+              user?.role === 'employee' ? <Navigate to="/employee" replace /> : <DashboardPage activeTab="monthly" />
+            }
+          />
+          <Route
+            path="/yearly"
+            element={
+              user?.role === 'employee' ? <Navigate to="/employee" replace /> : <DashboardPage activeTab="yearly" />
+            }
+          />
+          <Route
+            path="/template-manager"
+            element={
+              user?.role === 'employee' ? <Navigate to="/employee" replace /> : <DashboardPage activeTab="template" />
+            }
+          />
+          <Route
+            path="/employee"
+            element={
+              user?.role === 'employee' ? <EmployeePage /> : <DashboardPage activeTab="employees" />
+            }
+          />
+        </Route>
 
         <Route path="*" element={<Navigate to={authed ? (user?.role === 'employee' ? '/employee' : '/') : '/login'} replace />} />
       </Routes>
