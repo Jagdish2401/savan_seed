@@ -388,7 +388,8 @@ router.get('/:year/:season/combined/products', async (req, res) => {
     const templatePath = path.join(__dirname, `../../uploads/templates/${year}_${season}_combined_template.xlsx`);
     
     try {
-      await fs.access(templatePath);
+      const st = await fs.stat(templatePath);
+      if (st.size === 0) return res.json({ success: true, products: [] });
     } catch {
       return res.json({ success: true, products: [] });
     }
@@ -428,6 +429,106 @@ router.get('/:year/:season/combined/products', async (req, res) => {
   }
 });
 
+function convertSharedFormulasToExplicit(sheet) {
+  sheet.eachRow({ includeEmpty: false }, (row) => {
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      if (cell.type === ExcelJS.ValueType.Formula || (cell.value && typeof cell.value === 'object' && cell.value.formula)) {
+        try {
+          const f = cell.formula;
+          const r = cell.result;
+          if (f) {
+            cell.value = { formula: f, result: r };
+          }
+        } catch {
+          // ignore formula resolution errors
+        }
+      }
+    });
+  });
+}
+
+function getNextAvailableCol(sheet) {
+  let maxCol = 2; // Default after Emp ID and Name
+  if (sheet._merges) {
+    for (const range of Object.values(sheet._merges)) {
+      if (range && range.model && range.model.top <= 2) {
+        if (range.model.right > maxCol) {
+          maxCol = range.model.right;
+        }
+      }
+    }
+  }
+  for (let c = 3; c <= 500; c++) {
+    const v1 = sheet.getRow(1).getCell(c).value;
+    const v2 = sheet.getRow(2).getCell(c).value;
+    if ((v1 !== null && v1 !== undefined && v1 !== '') || (v2 !== null && v2 !== undefined && v2 !== '')) {
+      if (c > maxCol) maxCol = c;
+    }
+  }
+  return maxCol + 1;
+}
+
+function safeMergeHeader(sheet, r, startCol, endCol) {
+  if (sheet._merges) {
+    for (const key of Object.keys(sheet._merges)) {
+      const range = sheet._merges[key];
+      if (range && range.model) {
+        const { top, bottom, left, right } = range.model;
+        if (top <= r && bottom >= r && right >= startCol && left <= endCol) {
+          try {
+            sheet.unmergeCells(key);
+          } catch {
+            delete sheet._merges[key];
+          }
+        }
+      }
+    }
+  }
+  for (let c = startCol; c <= endCol; c++) {
+    const cell = sheet.getRow(r).getCell(c);
+    if (cell.isMerged && cell.master) {
+      try {
+        sheet.unmergeCells(cell.master.address);
+      } catch {
+        // ignore
+      }
+    }
+  }
+  try {
+    sheet.mergeCells(r, startCol, r, endCol);
+  } catch {
+    // ignore
+  }
+}
+
+function safeUnmergeHeader(sheet, r, startCol, endCol) {
+  if (sheet._merges) {
+    for (const key of Object.keys(sheet._merges)) {
+      const range = sheet._merges[key];
+      if (range && range.model) {
+        const { top, bottom, left, right } = range.model;
+        if (top <= r && bottom >= r && right >= startCol && left <= endCol) {
+          try {
+            sheet.unmergeCells(key);
+          } catch {
+            delete sheet._merges[key];
+          }
+        }
+      }
+    }
+  }
+  for (let c = startCol; c <= endCol; c++) {
+    const cell = sheet.getRow(r).getCell(c);
+    if (cell.isMerged && cell.master) {
+      try {
+        sheet.unmergeCells(cell.master.address);
+      } catch {
+        // ignore
+      }
+    }
+  }
+}
+
 /**
  * Dynamically adds a new Product block (9 columns) to a Combined template
  */
@@ -447,7 +548,8 @@ router.post('/:year/:season/combined/add-product', async (req, res) => {
       const templatePath = path.join(__dirname, `../../uploads/templates/${year}_${s}_combined_template.xlsx`);
       
       try {
-        await fs.access(templatePath);
+        const st = await fs.stat(templatePath);
+        if (st.size === 0) throw new Error('File empty');
       } catch {
         if (season === 'all') continue; // Skip missing ones if 'all'
         return res.status(404).json({ success: false, message: `Template for ${s} not found.` });
@@ -459,12 +561,7 @@ router.post('/:year/:season/combined/add-product', async (req, res) => {
       for (const sheet of workbook.worksheets) {
         if (sheet.name.startsWith('#')) continue;
 
-        let nextCol = 3; 
-        let safety = 0;
-        while (sheet.getRow(2).getCell(nextCol).value && safety < 100) {
-          nextCol += 9;
-          safety++;
-        }
+        const nextCol = getNextAvailableCol(sheet);
 
         const headerFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2EFDA' } };
         const borderStyle = {
@@ -474,7 +571,7 @@ router.post('/:year/:season/combined/add-product', async (req, res) => {
           right: { style: 'thin' }
         };
 
-        sheet.mergeCells(1, nextCol, 1, nextCol + 8);
+        safeMergeHeader(sheet, 1, nextCol, nextCol + 8);
         const nameCell = sheet.getRow(1).getCell(nextCol);
         nameCell.value = productName;
         nameCell.font = { bold: true, size: 12 };
@@ -573,7 +670,8 @@ router.post('/:year/:season/combined/remove-product', async (req, res) => {
       const templatePath = path.join(__dirname, `../../uploads/templates/${year}_${s}_combined_template.xlsx`);
       
       try {
-        await fs.access(templatePath);
+        const st = await fs.stat(templatePath);
+        if (st.size === 0) throw new Error('File empty');
       } catch {
         if (season === 'all') continue;
         return res.status(404).json({ success: false, message: `Template for ${s} not found.` });
@@ -587,17 +685,26 @@ router.post('/:year/:season/combined/remove-product', async (req, res) => {
         if (sheet.name.startsWith('#')) continue;
 
         let colToDelete = -1;
+        let width = 9;
         const row1 = sheet.getRow(1);
-        for (let c = 3; c <= 500; c += 9) {
+        for (let c = 1; c <= 500; c++) {
           const val = String(row1.getCell(c).value || '').trim();
           if (val.toLowerCase() === productName.toLowerCase()) {
             colToDelete = c;
+            if (sheet._merges) {
+              const m = sheet._merges[row1.getCell(c).address];
+              if (m && m.model) {
+                width = m.model.right - m.model.left + 1;
+              }
+            }
             break;
           }
         }
 
         if (colToDelete !== -1) {
-          sheet.spliceColumns(colToDelete, 9);
+          convertSharedFormulasToExplicit(sheet);
+          safeUnmergeHeader(sheet, 1, colToDelete, colToDelete + width - 1);
+          sheet.spliceColumns(colToDelete, width);
           removedInThisFile = true;
 
           let minPriceRow = -1;

@@ -7,7 +7,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 async function test() {
-  const filePath = path.join(__dirname, 'backend/uploads/templates/2026_shiyadu_combined_template.xlsx');
+  const filePath = path.join(__dirname, 'uploads/templates/2026_shiyadu_combined_template.xlsx');
   console.log('Testing on:', filePath);
   
   try {
