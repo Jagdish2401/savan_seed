@@ -58,8 +58,6 @@ The previous method of managing employee increments relied heavily on manual spr
 | **Resource Limitations** | Requires significant man-hours to merge seasonal data. | Delayed increment cycles. |
 | **Data Limitations** | Fragmented data across multiple files and folders. | Difficult to maintain historical records. |
 | **Methodology** | Inconsistent logic for mapping KPIs to salary. | Potential for bias and disputes. |
-| **Technology Constraints** | Static files with no real-time analytics. | Slow decision-making process. |
-| **Unforeseen Challenges** | Risk of data loss due to file corruption. | Permanent loss of sensitive payroll data. |
 
 ---
 
